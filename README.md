@@ -1,2 +1,2 @@
 # UbiComp
-CS5204: Operating Systems Semester Projecti
+CS5204: Operating Systems Semester Project

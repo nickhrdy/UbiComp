@@ -18,6 +18,7 @@ import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
+import android.os.AsyncTask;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
@@ -45,7 +46,15 @@ import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata;
 import com.google.firebase.ml.vision.text.FirebaseVisionText;
 import com.google.firebase.ml.vision.text.FirebaseVisionTextRecognizer;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,11 +62,13 @@ import java.util.Arrays;
 
 public class MainActivity extends AppCompatActivity {
 
+    //View Objects
     Button button;
     TextureView textureView;
     TextView text;
-    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
 
+    //Orientation enum
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
     static {
         ORIENTATIONS.append(Surface.ROTATION_0,0);
         ORIENTATIONS.append(Surface.ROTATION_90, 90);
@@ -65,15 +76,14 @@ public class MainActivity extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
+
+    //Properties needed for the camera
     private String cameraId;
     CameraDevice cameraDevice;
     CameraCaptureSession cameraCaptureSession;
     CaptureRequest captureRequest;
     CaptureRequest.Builder captureRequestBuilder;
-
     private Size imageDimensions;
-    private ImageReader imageReader;
-    private File file;
     Handler mBackgroundHandler;
     HandlerThread mBackgroundThread;
 
@@ -98,7 +108,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
-
     }
 
 
@@ -172,7 +181,6 @@ public class MainActivity extends AppCompatActivity {
                 } catch (CameraAccessException e) {
                     e.printStackTrace();
                 }
-
             }
 
             @Override
@@ -225,7 +233,7 @@ public class MainActivity extends AppCompatActivity {
         captureBuilder.set(captureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
         final int rotation = getWindowManager().getDefaultDisplay().getRotation();
-        Log.d("uwu", "rotation " + ((Integer)rotation).toString() + " " + ORIENTATIONS.get(rotation));
+        Log.d("Image Capture", "rotation " + ((Integer)rotation).toString() + " " + ORIENTATIONS.get(rotation));
         captureBuilder.set(captureRequest.JPEG_ORIENTATION,ORIENTATIONS.get(rotation));
 
         ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
@@ -240,7 +248,7 @@ public class MainActivity extends AppCompatActivity {
                 buffer.get(bytes);
                 Bitmap bImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
                 Boolean a = bImage == null;
-                Log.d("uwu", a.toString());
+                Log.d("Image Capture", a.toString());
                 if (image != null) {
                     runTextRecognition(bImage);
                 }
@@ -312,17 +320,84 @@ public class MainActivity extends AppCompatActivity {
     private void processTextRecognitionResult(FirebaseVisionText texts) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
         for (int i = 0; i < blocks.size(); i++) {
-            Log.d("uwu", "found word! " + blocks.get(i).getText() + blocks.get(i).getConfidence());
+            //Can't ge the confidence because we're not using cloud
+            Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
             List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
             for (int j = 0; j < lines.size(); j++) {
                 List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
                 for (int k = 0; k < elements.size(); k++) {
-
+                    //Do something
                 }
             }
         }
-        Log.d("uwu", "Done processing!");
+        Log.d("Firebase", "Done processing!");
+        new NetworkTask().execute();
+    }
+
+    private class NetworkTask extends AsyncTask<URL, Integer, Long>{
+        @Override
+        protected Long doInBackground(URL... urls) {
+            try {
+                retrieveData();
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+    }
+
+
+
+    private void retrieveData() throws MalformedURLException {
+        URL url = new URL("https://csgenome.org/api");
+        HttpURLConnection urlConnection = null;
+        try {
+            urlConnection = (HttpURLConnection) url.openConnection();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            Log.d("Network", String.valueOf(urlConnection.getResponseCode()));
+            Log.d("Network", urlConnection.getResponseMessage());
+            InputStream in = new BufferedInputStream(urlConnection.getInputStream());
+            byte[] contents = new byte[1024];
+            int bytesRead = 0;
+            String s = "";
+            while((bytesRead = in.read(contents)) != -1){
+                s += new String(contents, 0, bytesRead);
+            }
+            Log.d("Network", s);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally{
+            urlConnection.disconnect();
+        }
+    }
+
+
+    private void uploadData() throws MalformedURLException {
+        URL url = new URL("http://localhost:5000/");
+        HttpURLConnection urlConnection = null;
+        try {
+            urlConnection = (HttpURLConnection) url.openConnection();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            urlConnection.setDoOutput(true);
+            urlConnection.setChunkedStreamingMode(0);
+
+            OutputStream out = new BufferedOutputStream(urlConnection.getOutputStream());
+            //writeStream(out);
+
+            InputStream in = new BufferedInputStream(urlConnection.getInputStream());
+            //readStream(in);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally{
+            urlConnection.disconnect();
+        }
     }
 
 

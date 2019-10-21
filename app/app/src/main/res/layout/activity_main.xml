@@ -6,25 +6,28 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <org.opencv.android.JavaCameraView
+    <TextureView
+        android:id="@+id/textureView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="visible"
-        android:id="@+id/CameraView"
-        />
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"/>
+
+    <EditText
+        android:id="@+id/editText"
+        android:layout_width="match_parent"
+        android:layout_height="285dp"
+        android:background="#FFFFFF"
+        android:ems="10"
+        android:gravity="start|top"
+        android:inputType="textMultiLine"
+        android:rotation="90" />
 
     <include
         layout="@layout/content_main"
         android:layout_width="506dp"
-        android:onClick="Canny" />
-
-    <EditText
-        android:id="@+id/editText"
-        android:layout_width="232dp"
-        android:layout_height="match_parent"
-        android:background="#FFFFFF"
-        android:ems="10"
-        android:gravity="start|top"
-        android:inputType="textMultiLine" />
+        android:onClick="Canny"
+        android:rotation="90"
+        app:layout_anchor="@+id/textureView"
+        app:layout_anchorGravity="center" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

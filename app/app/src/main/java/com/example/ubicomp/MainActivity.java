@@ -7,6 +7,10 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -68,6 +72,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Arrays;
 
@@ -77,6 +82,7 @@ public class MainActivity extends AppCompatActivity {
     Button button;
     TextureView textureView;
     TextView text;
+
 
     //Orientation enum
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
@@ -88,8 +94,7 @@ public class MainActivity extends AppCompatActivity {
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
-
-    //Properties needed for the camera
+    //Camera properties
     private String cameraId;
     CameraDevice cameraDevice;
     CameraCaptureSession cameraCaptureSession;
@@ -99,21 +104,35 @@ public class MainActivity extends AppCompatActivity {
     Handler mBackgroundHandler;
     HandlerThread mBackgroundThread;
 
+
+    //Location properties
     private FusedLocationProviderClient fusedLocationProviderClient;
     private Location mLocation;
     private LocationCallback mLocationCallback;
     private LocationRequest mLocationRequest;
 
 
+    //Sensor properties
+    private SensorManager mSensorManager;
+    private Sensor mAccelerometer;
+    private SensorEventListener mSensorListener;
+    private Sensor mMagneticField;
+    private float[] mGravity;
+    private float[] mGeomagnetic;
+    private float azimuth;
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
         textureView = findViewById(R.id.textureView);
-        assert textureView != null;
+
         textureView.setSurfaceTextureListener(textureListener);
+
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
         mLocationRequest = new LocationRequest();
@@ -127,6 +146,40 @@ public class MainActivity extends AppCompatActivity {
               mLocation = locationResult.getLastLocation();
           }
         };
+
+        mSensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
+        mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mMagneticField = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        mSensorListener = new SensorEventListener() {
+            @Override
+            public void onSensorChanged(SensorEvent sensorEvent) {
+                if (sensorEvent.sensor.getType() == Sensor.TYPE_ACCELEROMETER)
+                    mGravity = sensorEvent.values;
+
+                if (sensorEvent.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD)
+                    mGeomagnetic = sensorEvent.values;
+
+                if (mGravity != null && mGeomagnetic != null) {
+                    float[] R = new float[9];
+                    float[] I = new float[9];
+
+                    if (SensorManager.getRotationMatrix(R, I, mGravity, mGeomagnetic)) {
+
+                        // orientation contains azimuth, pitch and roll
+                        float[] orientation = new float[3];
+                        SensorManager.getOrientation(R, orientation);
+
+                        azimuth = orientation[0];
+                    }
+                }
+            }
+
+            @Override
+            public void onAccuracyChanged(Sensor sensor, int i) {
+
+            }
+        };
+
 
         button.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -198,7 +251,7 @@ public class MainActivity extends AppCompatActivity {
         Surface surface = new Surface(texture);
         captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
         captureRequestBuilder.addTarget(surface);
-        cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
+        cameraDevice.createCaptureSession(Collections.singletonList(surface), new CameraCaptureSession.StateCallback() {
             @Override
             public void onConfigured(@NonNull CameraCaptureSession session) {
                 if (cameraDevice == null) {
@@ -225,7 +278,7 @@ public class MainActivity extends AppCompatActivity {
         if (cameraDevice == null) {
             return;
         }
-        captureRequestBuilder.set(captureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+        captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         cameraCaptureSession.setRepeatingRequest(captureRequestBuilder.build(), null, mBackgroundHandler);
     }
 
@@ -235,6 +288,7 @@ public class MainActivity extends AppCompatActivity {
         cameraId = manager.getCameraIdList()[0];
         CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
         StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        assert map != null;
         imageDimensions = map.getOutputSizes(SurfaceTexture.class)[0];
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
@@ -243,7 +297,6 @@ public class MainActivity extends AppCompatActivity {
             ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA /*, Manifest.permission.ACCESS_COARSE_LOCATION*/, Manifest.permission.ACCESS_FINE_LOCATION}, 101);
             return;
         }
-
 
         manager.openCamera(cameraId, stateCallback, null);
     }
@@ -263,28 +316,26 @@ public class MainActivity extends AppCompatActivity {
         outputSurfaces.add(new Surface(textureView.getSurfaceTexture()));
         final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
         captureBuilder.addTarget(reader.getSurface());
-        captureBuilder.set(captureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+        captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
         final int rotation = getWindowManager().getDefaultDisplay().getRotation();
         Log.d("Image Capture", "rotation " + ((Integer) rotation).toString() + " " + ORIENTATIONS.get(rotation));
-        captureBuilder.set(captureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
+        captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(rotation));
 
         ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
 
             @Override
             public void onImageAvailable(ImageReader reader) {
-                Image image = null;
+                Image image;
                 image = reader.acquireLatestImage();
 
                 ByteBuffer buffer = image.getPlanes()[0].getBuffer();
                 byte[] bytes = new byte[buffer.capacity()];
                 buffer.get(bytes);
                 Bitmap bImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
-                Boolean a = bImage == null;
-                Log.d("Image Capture", a.toString());
-                if (image != null) {
-                    runTextRecognition(bImage);
-                }
+                boolean a = bImage == null;
+                Log.d("Image Capture", Boolean.toString(a));
+                runTextRecognition(bImage);
             }
         };
 
@@ -370,24 +421,16 @@ public class MainActivity extends AppCompatActivity {
         new NetworkTask().execute();
     }
 
-    /*
-    private class LocationLooperThread extends Thread {
-        public Handler mHandler;
-        public void run() {
-            Looper.prepare();
-            mHandler = new Handler(){
-
-            }
-        }
-    }*/
 
     private void StartLocationUpdates() {
         fusedLocationProviderClient.requestLocationUpdates(mLocationRequest, mLocationCallback, Looper.getMainLooper());
     }
 
+
     private void StopLocationUpdates() {
         fusedLocationProviderClient.removeLocationUpdates(mLocationCallback);
     }
+
 
     private class NetworkTask extends AsyncTask<URL, Integer, Long> {
         @Override
@@ -407,65 +450,14 @@ public class MainActivity extends AppCompatActivity {
         URL url = new URL("https://csgenome.org/api");
         HttpURLConnection urlConnection = null;
 
-
-        Log.d("GPS", "Bearing: " + mLocation.hasBearing() + " " + mLocation.getBearing());
-        Log.d("GPS", "Latitude: " + mLocation.getLatitude());
-        Log.d("GPS", "Longitude: " + mLocation.getLongitude());
-        //find location
-        /*
-        fusedLocationProviderClient.getLastLocation()
-        .addOnSuccessListener(this, new OnSuccessListener<Location>() {
-            @Override
-            public void onSuccess(Location location) {
-                if(location != null){
-                    Log.d("GPS", "Bearing: " + location.getBearing());
-                    Log.d("GPS", "Latitude: " + location.getLatitude());
-                    Log.d("GPS", "Longitude: " + location.getLongitude());
-                }
-            }
-        });
-
-         */
-
-
-
-
-        /*
-        LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    Activity#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for Activity#requestPermissions for more details.
-            return;
+        if(mLocation == null){
+            Log.w("GPS", "Location == null!");
         }
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 20, new LocationListener() {
-            @Override
-            public void onLocationChanged(Location location) {
-                Log.d("GPS", "Bearing: " + location.getBearing());
-                Log.d("GPS", "Latitude: " + location.getLatitude());
-                Log.d("GPS", "Longitude: " + location.getLongitude());
-            }
-
-            @Override
-            public void onStatusChanged(String provider, int status, Bundle extras) {
-                Log.d("GPS", String.valueOf(status));
-            }
-
-            @Override
-            public void onProviderEnabled(String provider) {
-                Log.d("GPS", "enabled");
-            }
-
-            @Override
-            public void onProviderDisabled(String provider) {
-                Log.d("GPS", "disabled");
-            }
-        });*/
-
+        else {
+            Log.d("GPS", "Azimuth: " + azimuth);
+            Log.d("GPS", "Latitude: " + mLocation.getLatitude());
+            Log.d("GPS", "Longitude: " + mLocation.getLongitude());
+        }
 
         try {
             urlConnection = (HttpURLConnection) url.openConnection();
@@ -473,16 +465,17 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
         try {
+            assert urlConnection != null;
             Log.d("Network", String.valueOf(urlConnection.getResponseCode()));
             Log.d("Network", urlConnection.getResponseMessage());
             InputStream in = new BufferedInputStream(urlConnection.getInputStream());
             byte[] contents = new byte[1024];
-            int bytesRead = 0;
-            String s = "";
+            int bytesRead;
+            StringBuilder s = new StringBuilder();
             while((bytesRead = in.read(contents)) != -1){
-                s += new String(contents, 0, bytesRead);
+                s.append(new String(contents, 0, bytesRead));
             }
-            Log.d("Network", s);
+            Log.d("Network", s.toString());
         } catch (IOException e) {
             e.printStackTrace();
         } finally{
@@ -500,6 +493,7 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
         try {
+            assert urlConnection != null;
             urlConnection.setDoOutput(true);
             urlConnection.setChunkedStreamingMode(0);
 
@@ -511,6 +505,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             e.printStackTrace();
         } finally{
+            assert urlConnection != null;
             urlConnection.disconnect();
         }
     }
@@ -537,6 +532,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         StartLocationUpdates();
+        mSensorManager.registerListener(mSensorListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        mSensorManager.registerListener(mSensorListener, mMagneticField, SensorManager.SENSOR_DELAY_NORMAL);
         startBackgroundThread();
         if(textureView.isAvailable()){
             try {
@@ -556,12 +553,16 @@ public class MainActivity extends AppCompatActivity {
         try {
             stopBackgroundThread();
             StopLocationUpdates();
+            mSensorManager.unregisterListener(mSensorListener, mAccelerometer);
+            mSensorManager.unregisterListener(mSensorListener, mMagneticField);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
 
         super.onPause();
     }
+
+
 
 
     @Override

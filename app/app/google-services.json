@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "410011958189",
+    "firebase_url": "https://ubicomp-b6a69.firebaseio.com",
+    "project_id": "ubicomp-b6a69",
+    "storage_bucket": "ubicomp-b6a69.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:410011958189:android:3406a03cb000dd9e26bf24",
+        "android_client_info": {
+          "package_name": "com.example.ubicomp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "410011958189-joaaqibh566oq29g7367i6cldd37rehh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDgTLY1jW2JFoHzCG7AnndZ4hQn-YtL7F0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "410011958189-joaaqibh566oq29g7367i6cldd37rehh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

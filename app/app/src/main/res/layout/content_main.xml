@@ -8,13 +8,31 @@
     tools:context=".MainActivity"
     tools:showIn="@layout/activity_main">
 
+    <EditText
+        android:id="@+id/editText"
+        android:layout_width="262dp"
+        android:layout_height="378dp"
+        android:layout_marginStart="4dp"
+        android:background="#FFFFFF"
+        android:ems="10"
+        android:inputType="textMultiLine"
+        android:rotation="0"
+        android:textIsSelectable="false"
+        android:textSize="10sp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="1.0" />
+
     <Button
         android:id="@+id/button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:rotation="90"
-        android:text="Button"
+        android:layout_marginBottom="16dp"
+        android:rotation="0"
+        android:text="Scan"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        tools:layout_editor_absoluteX="-5dp" />
+        app:layout_constraintEnd_toEndOf="@+id/editText"
+        app:layout_constraintHorizontal_bias="0.502"
+        app:layout_constraintStart_toStartOf="@+id/editText" />
 </androidx.constraintlayout.widget.ConstraintLayout>

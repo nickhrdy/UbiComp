@@ -1,12 +1,20 @@
 package com.example.ubicomp;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Camera;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
+import android.graphics.RectF;
 import android.graphics.SurfaceTexture;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -16,17 +24,24 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Looper;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
@@ -38,6 +53,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.firebase.ml.vision.FirebaseVision;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
@@ -45,52 +65,128 @@ import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata;
 import com.google.firebase.ml.vision.text.FirebaseVisionText;
 import com.google.firebase.ml.vision.text.FirebaseVisionTextRecognizer;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Arrays;
 
 public class MainActivity extends AppCompatActivity {
 
+    //View Objects
     Button button;
     TextureView textureView;
     TextView text;
+
+
+    //Orientation enum
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
 
     static {
-        ORIENTATIONS.append(Surface.ROTATION_0,0);
+        ORIENTATIONS.append(Surface.ROTATION_0, 0);
         ORIENTATIONS.append(Surface.ROTATION_90, 90);
         ORIENTATIONS.append(Surface.ROTATION_180, 270);
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
+    //Camera properties
     private String cameraId;
     CameraDevice cameraDevice;
     CameraCaptureSession cameraCaptureSession;
     CaptureRequest captureRequest;
     CaptureRequest.Builder captureRequestBuilder;
-
     private Size imageDimensions;
-    private ImageReader imageReader;
-    private File file;
     Handler mBackgroundHandler;
     HandlerThread mBackgroundThread;
+
+
+    //Location properties
+    private FusedLocationProviderClient fusedLocationProviderClient;
+    private Location mLocation;
+    private LocationCallback mLocationCallback;
+    private LocationRequest mLocationRequest;
+
+
+    //Sensor properties
+    private SensorManager mSensorManager;
+    private Sensor mAccelerometer;
+    private SensorEventListener mSensorListener;
+    private Sensor mMagneticField;
+    private float[] mGravity;
+    private float[] mGeomagnetic;
+    private float azimuth;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
         textureView = findViewById(R.id.textureView);
-        assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
 
-        button.setOnClickListener(new View.OnClickListener(){
+        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
+
+        mLocationRequest = new LocationRequest();
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        mLocationCallback = new LocationCallback(){
+          @Override
+          public void onLocationResult(LocationResult locationResult) {
+              if(locationResult == null) {
+                  return;
+              }
+              mLocation = locationResult.getLastLocation();
+          }
+        };
+
+        mSensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
+        mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mMagneticField = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        mSensorListener = new SensorEventListener() {
             @Override
-            public void onClick(View v){
+            public void onSensorChanged(SensorEvent sensorEvent) {
+                if (sensorEvent.sensor.getType() == Sensor.TYPE_ACCELEROMETER)
+                    mGravity = sensorEvent.values;
+
+                if (sensorEvent.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD)
+                    mGeomagnetic = sensorEvent.values;
+
+                if (mGravity != null && mGeomagnetic != null) {
+                    float[] R = new float[9];
+                    float[] I = new float[9];
+
+                    if (SensorManager.getRotationMatrix(R, I, mGravity, mGeomagnetic)) {
+
+                        // orientation contains azimuth, pitch and roll
+                        float[] orientation = new float[3];
+                        SensorManager.getOrientation(R, orientation);
+
+                        azimuth = orientation[0];
+                    }
+                }
+            }
+
+            @Override
+            public void onAccuracyChanged(Sensor sensor, int i) {
+
+            }
+        };
+
+
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
                 try {
                     takePicture();
                 } catch (CameraAccessException e) {
@@ -98,7 +194,31 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
 
+
+    private void configureTransform(int viewWidth, int viewHeight) {
+        if (null == textureView || null == imageDimensions) {
+            return;
+        }
+        int rotation = getWindowManager().getDefaultDisplay().getRotation();
+        Matrix matrix = new Matrix();
+        RectF viewRect = new RectF(0, 0, viewWidth, viewHeight);
+        RectF bufferRect = new RectF(0, 0, imageDimensions.getHeight(), imageDimensions.getWidth());
+        float centerX = viewRect.centerX();
+        float centerY = viewRect.centerY();
+        if (Surface.ROTATION_90 == rotation || Surface.ROTATION_270 == rotation) {
+            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY());
+            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL);
+            float scale = Math.max(
+                    (float) viewHeight / imageDimensions.getHeight(),
+                    (float) viewWidth / imageDimensions.getWidth());
+            matrix.postScale(scale, scale, centerX, centerY);
+            matrix.postRotate(90 * (rotation - 2), centerX, centerY);
+        } else if (Surface.ROTATION_180 == rotation) {
+            matrix.postRotate(180, centerX, centerY);
+        }
+        textureView.setTransform(matrix);
     }
 
 
@@ -106,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture, int i, int i1) {
             try {
-                openCamera();
+                openCamera(i, i1);
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
@@ -159,10 +279,10 @@ public class MainActivity extends AppCompatActivity {
         Surface surface = new Surface(texture);
         captureRequestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
         captureRequestBuilder.addTarget(surface);
-        cameraDevice.createCaptureSession(Arrays.asList(surface), new CameraCaptureSession.StateCallback() {
+        cameraDevice.createCaptureSession(Collections.singletonList(surface), new CameraCaptureSession.StateCallback() {
             @Override
             public void onConfigured(@NonNull CameraCaptureSession session) {
-                if(cameraDevice == null){
+                if (cameraDevice == null) {
                     return;
                 }
 
@@ -172,7 +292,6 @@ public class MainActivity extends AppCompatActivity {
                 } catch (CameraAccessException e) {
                     e.printStackTrace();
                 }
-
             }
 
             @Override
@@ -184,66 +303,69 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void updatePreview() throws CameraAccessException {
-        if(cameraDevice == null){
+        if (cameraDevice == null) {
             return;
         }
-        captureRequestBuilder.set(captureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+        captureRequestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
         cameraCaptureSession.setRepeatingRequest(captureRequestBuilder.build(), null, mBackgroundHandler);
     }
 
 
-    private void openCamera() throws CameraAccessException {
-        CameraManager manager = (CameraManager)getSystemService(Context.CAMERA_SERVICE);
+    private void openCamera(int width, int height) throws CameraAccessException {
+        CameraManager manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
         cameraId = manager.getCameraIdList()[0];
         CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
         StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+        assert map != null;
         imageDimensions = map.getOutputSizes(SurfaceTexture.class)[0];
 
-        if(ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED){
-            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA},101);
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+                //ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
+            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA /*, Manifest.permission.ACCESS_COARSE_LOCATION*/, Manifest.permission.ACCESS_FINE_LOCATION}, 101);
             return;
         }
-
+        configureTransform(width, height);
         manager.openCamera(cameraId, stateCallback, null);
+
     }
 
 
     private void takePicture() throws CameraAccessException {
-        if(cameraDevice == null){
+        if (cameraDevice == null) {
             return;
         }
 
         int width = 1920;
         int height = 1080;
 
-        ImageReader reader = ImageReader.newInstance(width, height,ImageFormat.JPEG,1 );
+        ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
         List<Surface> outputSurfaces = new ArrayList<>(2);
         outputSurfaces.add(reader.getSurface());
         outputSurfaces.add(new Surface(textureView.getSurfaceTexture()));
         final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
         captureBuilder.addTarget(reader.getSurface());
-        captureBuilder.set(captureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
+        captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
 
         final int rotation = getWindowManager().getDefaultDisplay().getRotation();
-        Log.d("uwu", "rotation " + ((Integer)rotation).toString() + " " + ORIENTATIONS.get(rotation));
-        captureBuilder.set(captureRequest.JPEG_ORIENTATION,ORIENTATIONS.get(rotation));
+        Log.d("Image Capture", "rotation " + ((Integer) rotation).toString() + " " + ORIENTATIONS.get(rotation));
+        captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(1));
 
         ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
 
             @Override
             public void onImageAvailable(ImageReader reader) {
-                Image image = null;
+                Image image;
                 image = reader.acquireLatestImage();
 
                 ByteBuffer buffer = image.getPlanes()[0].getBuffer();
                 byte[] bytes = new byte[buffer.capacity()];
                 buffer.get(bytes);
                 Bitmap bImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
-                Boolean a = bImage == null;
-                Log.d("uwu", a.toString());
-                if (image != null) {
-                    runTextRecognition(bImage);
-                }
+                boolean a = bImage == null;
+                Log.d("Image Capture", Boolean.toString(a));
+                runTextRecognition(bImage);
             }
         };
 
@@ -282,8 +404,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        if(requestCode == 101){
-            if(grantResults[0] == PackageManager.PERMISSION_DENIED){
+        if (requestCode == 101) {
+            if (grantResults[0] == PackageManager.PERMISSION_DENIED) {
                 Toast.makeText(getApplicationContext(), "I need dat camera doe...", Toast.LENGTH_LONG).show();
             }
         }
@@ -291,7 +413,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    public void ClearText(View Button) { text.clearComposingText();}
+    public void ClearText(View Button) {
+        text.clearComposingText();
+    }
 
 
     private void runTextRecognition(Bitmap b) {
@@ -312,17 +436,108 @@ public class MainActivity extends AppCompatActivity {
     private void processTextRecognitionResult(FirebaseVisionText texts) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
         for (int i = 0; i < blocks.size(); i++) {
-            Log.d("uwu", "found word! " + blocks.get(i).getText() + blocks.get(i).getConfidence());
+            //Can't ge the confidence because we're not using cloud
+            Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
             List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
             for (int j = 0; j < lines.size(); j++) {
                 List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
                 for (int k = 0; k < elements.size(); k++) {
-
+                    //Do something
                 }
             }
         }
-        Log.d("uwu", "Done processing!");
+        Log.d("Firebase", "Done processing!");
+        new NetworkTask().execute();
+    }
+
+
+    private void StartLocationUpdates() {
+        fusedLocationProviderClient.requestLocationUpdates(mLocationRequest, mLocationCallback, Looper.getMainLooper());
+    }
+
+
+    private void StopLocationUpdates() {
+        fusedLocationProviderClient.removeLocationUpdates(mLocationCallback);
+    }
+
+
+    private class NetworkTask extends AsyncTask<URL, Integer, Long> {
+        @Override
+        protected Long doInBackground(URL... urls) {
+            try {
+                retrieveData();
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+    }
+
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    private void retrieveData() throws MalformedURLException {
+        URL url = new URL("https://csgenome.org/api");
+        HttpURLConnection urlConnection = null;
+
+        if(mLocation == null){
+            Log.w("GPS", "Location == null!");
+        }
+        else {
+            Log.d("GPS", "Azimuth: " + azimuth);
+            Log.d("GPS", "Latitude: " + mLocation.getLatitude());
+            Log.d("GPS", "Longitude: " + mLocation.getLongitude());
+        }
+
+        try {
+            urlConnection = (HttpURLConnection) url.openConnection();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            assert urlConnection != null;
+            Log.d("Network", String.valueOf(urlConnection.getResponseCode()));
+            Log.d("Network", urlConnection.getResponseMessage());
+            InputStream in = new BufferedInputStream(urlConnection.getInputStream());
+            byte[] contents = new byte[1024];
+            int bytesRead;
+            StringBuilder s = new StringBuilder();
+            while((bytesRead = in.read(contents)) != -1){
+                s.append(new String(contents, 0, bytesRead));
+            }
+            Log.d("Network", s.toString());
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally{
+            urlConnection.disconnect();
+        }
+    }
+
+
+    private void uploadData() throws MalformedURLException {
+        URL url = new URL("http://localhost:5000/");
+        HttpURLConnection urlConnection = null;
+        try {
+            urlConnection = (HttpURLConnection) url.openConnection();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            assert urlConnection != null;
+            urlConnection.setDoOutput(true);
+            urlConnection.setChunkedStreamingMode(0);
+
+            OutputStream out = new BufferedOutputStream(urlConnection.getOutputStream());
+            //writeStream(out);
+
+            InputStream in = new BufferedInputStream(urlConnection.getInputStream());
+            //readStream(in);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally{
+            assert urlConnection != null;
+            urlConnection.disconnect();
+        }
     }
 
 
@@ -346,11 +561,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-
+        StartLocationUpdates();
+        mSensorManager.registerListener(mSensorListener, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        mSensorManager.registerListener(mSensorListener, mMagneticField, SensorManager.SENSOR_DELAY_NORMAL);
         startBackgroundThread();
         if(textureView.isAvailable()){
             try {
-                openCamera();
+                openCamera(textureView.getWidth(), textureView.getHeight());
             } catch (CameraAccessException e) {
                 e.printStackTrace();
             }
@@ -365,12 +582,17 @@ public class MainActivity extends AppCompatActivity {
     protected void onPause() {
         try {
             stopBackgroundThread();
+            StopLocationUpdates();
+            mSensorManager.unregisterListener(mSensorListener, mAccelerometer);
+            mSensorManager.unregisterListener(mSensorListener, mMagneticField);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
 
         super.onPause();
     }
+
+
 
 
     @Override

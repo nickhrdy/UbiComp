@@ -1,9 +1,11 @@
 package com.example.ubicomp;
 
+import org.json.*;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Camera;
@@ -29,6 +31,8 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.media.Image;
 import android.media.ImageReader;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -37,6 +41,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.fragment.app.FragmentActivity;
 
 import android.os.Environment;
 import android.os.Handler;
@@ -75,12 +80,36 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.ByteBuffer;
+import java.security.KeyManagementException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Arrays;
 
-public class MainActivity extends AppCompatActivity {
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import javax.net.ssl.X509TrustManager;
+
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
+public class MainActivity extends FragmentActivity implements DownloadCallback<String> {//extends AppCompatActivity {
 
     //View Objects
     Button button;
@@ -125,6 +154,15 @@ public class MainActivity extends AppCompatActivity {
     private float[] mGeomagnetic;
     private float azimuth;
 
+    // Network Connectivity
+    //      Keep a reference to the NetworkFragment, which owns the AsyncTask object
+    //      that is used to execute network ops.
+    private NetworkFragment networkFragment;
+    //
+    //      Boolean telling us whether a download is in progress, so we don't trigger overlapping
+    //      downloads with consecutive button clicks.
+    private boolean downloading = false;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -149,6 +187,16 @@ public class MainActivity extends AppCompatActivity {
               mLocation = locationResult.getLastLocation();
           }
         };
+
+        // Download html page from the internet
+        networkFragment = NetworkFragment.getInstance(getSupportFragmentManager(), "this url does not work >:(");
+        startDownload();
+
+
+        // Execute "Post" request to server
+        connectServer();
+        // Ping a server (used for debugging)
+        //pingServer();
 
         mSensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
         mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -194,6 +242,65 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         });
+    }
+
+    private SSLContext trustCert() throws CertificateException,IOException, KeyStoreException,
+            NoSuchAlgorithmException, KeyManagementException {
+        AssetManager assetManager = getAssets();
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        Certificate ca = cf.generateCertificate(assetManager.open("COMODORSADomainValidationSecureServerCA.crt"));
+
+        // Create a KeyStore containing our trusted CAs
+        String keyStoreType = KeyStore.getDefaultType();
+        KeyStore keyStore = KeyStore.getInstance(keyStoreType);
+        keyStore.load(null, null);
+        keyStore.setCertificateEntry("ca", ca);
+
+        // Create a TrustManager that trusts the CAs in our KeyStore
+        String tmfAlgorithm = TrustManagerFactory.getDefaultAlgorithm();
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(tmfAlgorithm);
+        tmf.init(keyStore);
+
+        // Create an SSLContext that uses our TrustManager
+        SSLContext context = SSLContext.getInstance("TLS");
+        context.init(null, tmf.getTrustManagers(), null);
+        return context;
+    }
+    private boolean pingServer(){
+        System.out.println("pingServer");
+        Runtime runtime = Runtime.getRuntime();
+        try
+        {
+            // IP address for your local computer, from the android emulator
+            // see https://developer.android.com/studio/run/emulator-networking#networkaddresses
+            Process  mIpAddrProcess = runtime.exec("/system/bin/ping -c 1 10.0.2.2");
+            int mExitValue = mIpAddrProcess.waitFor();
+            Log.d("Ping", " mExitValue "+mExitValue);
+            if(mExitValue==0){
+                return true;
+            }else{
+                return false;
+            }
+        }
+        catch (InterruptedException ignore)
+        {
+            ignore.printStackTrace();
+            System.out.println(" Exception:"+ignore);
+        }
+        catch (IOException e)
+        {
+            e.printStackTrace();
+            System.out.println(" Exception:"+e);
+        }
+        return false;
+    }
+
+    private void startDownload() {
+        if (!downloading && networkFragment != null) {
+            // Execute the async download.
+            networkFragment.startDownload();
+            downloading = true;
+        }
     }
 
 
@@ -478,7 +585,7 @@ public class MainActivity extends AppCompatActivity {
     @RequiresApi(api = Build.VERSION_CODES.M)
     private void retrieveData() throws MalformedURLException {
         URL url = new URL("https://csgenome.org/api");
-        HttpURLConnection urlConnection = null;
+        HttpsURLConnection urlConnection = null;
 
         if(mLocation == null){
             Log.w("GPS", "Location == null!");
@@ -490,7 +597,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         try {
-            urlConnection = (HttpURLConnection) url.openConnection();
+            urlConnection = (HttpsURLConnection) url.openConnection();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -515,7 +622,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     private void uploadData() throws MalformedURLException {
-        URL url = new URL("http://localhost:5000/");
+        URL url = new URL("https://localhost:5000/");
         HttpURLConnection urlConnection = null;
         try {
             urlConnection = (HttpURLConnection) url.openConnection();
@@ -598,5 +705,166 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+    }
+
+    //
+
+    @Override
+    public void updateFromDownload(String result) {
+        // TODO fill this in with a UI  update based on the result of the webpage.
+
+        // Update your UI here based on result of download.
+        Log.d("UrlResult", "SUCCESS");
+        Log.d("UrlResult", result);
+    }
+
+    @Override
+    public NetworkInfo getActiveNetworkInfo() {
+        ConnectivityManager connectivityManager =
+                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo networkInfo = connectivityManager.getActiveNetworkInfo();
+        return networkInfo;
+    }
+
+    @Override
+    public void onProgressUpdate(int progressCode, int percentComplete) {
+        switch(progressCode) {
+            // You can add UI behavior for progress updates here.
+            case DownloadCallback.Progress.ERROR:
+
+                break;
+            case DownloadCallback.Progress.CONNECT_SUCCESS:
+
+                break;
+            case DownloadCallback.Progress.GET_INPUT_STREAM_SUCCESS:
+
+                break;
+            case DownloadCallback.Progress.PROCESS_INPUT_STREAM_IN_PROGRESS:
+
+                break;
+            case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
+
+                break;
+        }
+    }
+
+    @Override
+    public void finishDownloading() {
+        downloading = false;
+        if (networkFragment != null) {
+            networkFragment.cancelDownload();
+        }
+    }
+
+    // Connecting to flask
+    // See https://github.com/webrtc/apprtc/issues/586 for details
+    void connectServer(){
+        try {
+            HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
+        }
+        catch (Exception e) {
+            Log.d("Flask", e.getMessage());
+        }
+        String ipv4Address = "10.0.2.2";
+        String portNumber = "8888";
+        String postUrl= "https://"+ipv4Address+":"+portNumber+"/api/post_some_data";
+        JSONArray obj;
+        try {
+            obj = new JSONArray("[ya, yeet]");
+            MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+            RequestBody postBody = RequestBody.create(mediaType, obj.toString());
+            postRequest(postUrl, postBody);
+
+        }
+        catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+    }
+    /*
+     * This is very bad practice and should NOT be used in production.
+     */
+    private static final TrustManager[] trustAllCerts = new TrustManager[] {
+            new X509TrustManager() {
+                @Override
+                public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {
+                }
+
+                @Override
+                public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) throws CertificateException {
+                }
+
+                @Override
+                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                    return new java.security.cert.X509Certificate[]{};
+                }
+            }
+    };
+    private static final SSLContext trustAllSslContext;
+    static {
+        try {
+            trustAllSslContext = SSLContext.getInstance("SSL");
+            trustAllSslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            throw new RuntimeException(e);
+        }
+    }
+    private static final SSLSocketFactory trustAllSslSocketFactory = trustAllSslContext.getSocketFactory();
+
+    /*
+     * TODO Replace this with another method that is secure
+     * This should not be used in production unless you really don't care
+     * about the security. Use at your own risk.
+     */
+    public static OkHttpClient trustAllSslClient(OkHttpClient client) {
+        Log.d("Lmao", "Using the trustAllSslClient is highly discouraged and should not be used in Production!");
+        OkHttpClient.Builder builder = client.newBuilder();
+        builder.sslSocketFactory(trustAllSslSocketFactory, (X509TrustManager)trustAllCerts[0]);
+        builder.hostnameVerifier(new HostnameVerifier() {
+            @Override
+            public boolean verify(String hostname, SSLSession session) {
+                return true;
+            }
+        });
+        return builder.build();
+    }
+    void postRequest(String postUrl, RequestBody postBody) {
+
+        OkHttpClient preconfiguredClient = new OkHttpClient();
+        OkHttpClient client = trustAllSslClient(preconfiguredClient);
+
+        Request request = new Request.Builder()
+                .url(postUrl)
+                .post(postBody)
+                .build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, final IOException e) {
+                // Cancel the post on failure.
+                call.cancel();
+
+                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Log.d("Flask", "Fail :(");
+                        Log.d("Flask", e.getMessage());
+                    }
+                });
+            }
+
+            @Override
+            public void onResponse(Call call, final Response response) throws IOException {
+                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        TextView responseText = text;
+                        Log.d("Flask", "SUCCESS :)");
+                    }
+                });
+            }
+        });
     }
 }

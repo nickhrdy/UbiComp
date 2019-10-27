@@ -59,6 +59,10 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.ar.sceneform.Node;
+import com.google.ar.sceneform.rendering.ModelRenderable;
+import com.google.ar.sceneform.rendering.ViewRenderable;
+import com.google.ar.sceneform.ux.ArFragment;
 import com.google.firebase.ml.vision.FirebaseVision;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
 import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata;
@@ -125,6 +129,10 @@ public class MainActivity extends AppCompatActivity {
     private float[] mGeomagnetic;
     private float azimuth;
 
+    //Ar core
+    private ArFragment arFragment;
+    private ModelRenderable andyRenderable;
+    private ViewRenderable viewRenderable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -135,6 +143,7 @@ public class MainActivity extends AppCompatActivity {
         button = findViewById(R.id.button);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
+        arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -399,6 +408,16 @@ public class MainActivity extends AppCompatActivity {
 
             }
         }, mBackgroundHandler);
+
+        ViewRenderable.builder()
+                .setView(this, R.layout.panel)
+                .build()
+                .thenAccept(renderable -> viewRenderable = renderable);
+
+        Node node = new Node();
+        node.setParent(arFragment.getArSceneView().getScene());
+        node.setRenderable(viewRenderable);
+
     }
 
 

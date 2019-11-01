@@ -1,4 +1,19 @@
 from flask import Flask, request, jsonify
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+
+cred = credentials.Certificate("ubicomp-b6a69-firebase-adminsdk-sogla-035a5bc421.json")
+my_app = firebase_admin.initialize_app(cred,
+                                       {
+    'databaseURL': 'https://ubicomp-b6a69.firebaseio.com'
+})
+print(my_app.project_id)
+# # As an admin, the app has access to read and write all data, regradless of Security Rules
+ref = db.reference('test-collection/jCPorqn419CKRfRZpGc6')
+
+print(ref.get())
+print(my_app.name)
 
 app = Flask(__name__)
 

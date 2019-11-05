@@ -7,5 +7,12 @@
     android:gravity="center"
     android:orientation="vertical"
     android:padding="6dp"
+    android:background="@color/colorAccent"
+    android:shadowColor="@android:color/black"
+    android:shadowDx="-2"
+    android:shadowDy="1.3"
+    android:shadowRadius="3.6"
     android:text="Test"
+    android:textColor="@android:color/white"
+
     android:textAlignment="center" />

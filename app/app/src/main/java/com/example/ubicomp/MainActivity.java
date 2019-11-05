@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Camera;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
@@ -49,6 +50,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -59,6 +61,8 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.ar.core.ArImage;
+import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.rendering.ModelRenderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
@@ -68,6 +72,8 @@ import com.google.firebase.ml.vision.common.FirebaseVisionImage;
 import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata;
 import com.google.firebase.ml.vision.text.FirebaseVisionText;
 import com.google.firebase.ml.vision.text.FirebaseVisionTextRecognizer;
+
+import org.w3c.dom.Text;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -340,86 +346,36 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-
-    private void takePicture() throws CameraAccessException {
-        if (cameraDevice == null) {
-            return;
-        }
-
-        int width = 1920;
-        int height = 1080;
-
-        ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
-        List<Surface> outputSurfaces = new ArrayList<>(2);
-        outputSurfaces.add(reader.getSurface());
-        outputSurfaces.add(new Surface(textureView.getSurfaceTexture()));
-        final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-        captureBuilder.addTarget(reader.getSurface());
-        captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
-
-        final int rotation = getWindowManager().getDefaultDisplay().getRotation();
-        Log.d("Image Capture", "rotation " + ((Integer) rotation).toString() + " " + ORIENTATIONS.get(rotation));
-        captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(1));
-
-        ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
-
-            @Override
-            public void onImageAvailable(ImageReader reader) {
-                Image image;
-                image = reader.acquireLatestImage();
-
-                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                byte[] bytes = new byte[buffer.capacity()];
-                buffer.get(bytes);
-                Bitmap bImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
-                boolean a = bImage == null;
-                Log.d("Image Capture", Boolean.toString(a));
-                runTextRecognition(bImage);
-            }
-        };
-
-        reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
-
-        final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
-            @Override
-            public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-                super.onCaptureCompleted(session, request, result);
-
-                try {
-                    createCameraPreview();
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-        };
-
-        cameraDevice.createCaptureSession(outputSurfaces, new CameraCaptureSession.StateCallback() {
-            @Override
-            public void onConfigured(@NonNull CameraCaptureSession session) {
-                try {
-                    session.capture(captureBuilder.build(), captureListener, mBackgroundHandler);
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            @Override
-            public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-
-            }
-        }, mBackgroundHandler);
-
-        ViewRenderable.builder()
-                .setView(this, R.layout.panel)
-                .build()
-                .thenAccept(renderable -> viewRenderable = renderable);
-
-        Node node = new Node();
-        node.setParent(arFragment.getArSceneView().getScene());
-        node.setRenderable(viewRenderable);
-
+    // Create View for ArCore renderables
+    private View createView(String s){
+        TextView view = new TextView(this);
+        view.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        view.setGravity(1);
+        view.setText(s);
+        view.setPadding(6, 6, 6, 6);
+        view.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        view.setBackgroundColor(Color.MAGENTA);
+        view.setTextColor(Color.WHITE);
+        return view;
     }
 
+
+    private void takePicture() throws CameraAccessException {
+
+        Image image = null;
+        try {
+            image = arFragment.getArSceneView().getArFrame().acquireCameraImage();
+            Log.d("Image Capture", String.valueOf(image.getFormat()));
+        } catch (NotYetAvailableException e) {
+            e.printStackTrace();
+            return;
+        }
+        Log.d("Image Capture", image.toString());
+        runTextRecognition(image);
+
+
+
+    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -431,14 +387,12 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-
     public void ClearText(View Button) {
         text.clearComposingText();
     }
 
-
-    private void runTextRecognition(Bitmap b) {
-        FirebaseVisionImage image = FirebaseVisionImage.fromBitmap(b);
+    private void runTextRecognition(Image b) {
+        FirebaseVisionImage image = FirebaseVisionImage.fromMediaImage(b, ORIENTATIONS.get(90));
         FirebaseVisionTextRecognizer recognizer = FirebaseVision.getInstance()
                 .getOnDeviceTextRecognizer();
         recognizer.processImage(image)
@@ -451,23 +405,41 @@ public class MainActivity extends AppCompatActivity {
                         });
     }
 
-
     private void processTextRecognitionResult(FirebaseVisionText texts) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
+        String s = "Default Text";
         for (int i = 0; i < blocks.size(); i++) {
             //Can't ge the confidence because we're not using cloud
             Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
+            s = blocks.get(i).getText();
+            Log.d("Firebase", "Done processing!");
+            new NetworkTask().execute();
+            break;
+
+
+            /* Leave this in case we need it again!
+
             List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
             for (int j = 0; j < lines.size(); j++) {
                 List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
                 for (int k = 0; k < elements.size(); k++) {
                     //Do something
                 }
-            }
+            }*/
         }
-        Log.d("Firebase", "Done processing!");
-        new NetworkTask().execute();
+
+        //Build the word as a renderable
+        ViewRenderable.builder()
+                .setView(this, createView(s))
+                .build()
+                .thenAccept(renderable -> viewRenderable = renderable);
+
+        Node node = new Node();
+        node.setParent(arFragment.getArSceneView().getScene());
+
+        node.setRenderable(viewRenderable);
+
     }
 
 

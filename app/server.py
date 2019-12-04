@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
@@ -9,11 +9,9 @@ my_app = firebase_admin.initialize_app(cred,
     'databaseURL': 'https://ubicomp-b6a69.firebaseio.com'
 })
 print(my_app.project_id)
-# # As an admin, the app has access to read and write all data, regradless of Security Rules
-ref = db.reference('test-collection/jCPorqn419CKRfRZpGc6')
 
-print(ref.get())
-print(my_app.name)
+# As an admin, the app has access to read and write all data, regradless of Security Rules
+POINTS = db.reference('points')
 
 app = Flask(__name__)
 
@@ -24,33 +22,38 @@ def index():
     this is a root dir of my server
     :return: str
     """
-    return "This is root!!!!"
+    return {'data': 'UbiComp Flask Service'}
 
 # GET
-@app.route('/users/<user>')
-def hello_user(user):
+@app.route('/points/<id>')
+def get_point(id):
     """
-    this serves as a demo purpose
-    :param user:
+    Get point with matching id
+    :param id: ID of point
     :return: str
     """
-    return "Hello %s!" % user
+    return jsonify(_ensure_point(id))
 
 # POST
-@app.route('/api/post_some_data', methods=['POST'])
-def get_text_prediction():
+@app.route('/points', methods=['POST'])
+def create_point_entry():
     """
-    predicts requested text whether it is ham or spam
+    Adds a point to firebase.
     :return: json
     """
-    json = request.get_json(force=True)
-    print('content: {}'.format(json))
-    if len(json['text']) == 0:
-        print('could not read content :(')
-        return jsonify({'error': 'invalid input'})
+    req = request.get_json(force=True)
+    entry = POINTS.push(req)
+    print('content: {}'.format(req))
+    return jsonify({'id': entry.key}), 201
 
-    return jsonify({'you sent this': json['text']})
-    
+
+def _ensure_point(id):
+    point = POINTS.child(id).get()
+    if not point:
+        abort(404)
+    return point
+
+
 # running web app in local machine
 if __name__ == '__main__':
     app.run(ssl_context='adhoc', port=8888)

@@ -65,6 +65,7 @@ import com.google.ar.core.ArImage;
 import com.google.ar.core.Frame;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.sceneform.Node;
+import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.ModelRenderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
 import com.google.ar.sceneform.ux.ArFragment;
@@ -90,6 +91,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Arrays;
+import java.util.Vector;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -150,7 +152,9 @@ public class MainActivity extends AppCompatActivity {
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
-
+        arFragment.getPlaneDiscoveryController().hide();
+        arFragment.getPlaneDiscoveryController().setInstructionView(null);
+        arFragment.getArSceneView().getPlaneRenderer().setEnabled(false);
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
         mLocationRequest = new LocationRequest();
@@ -351,7 +355,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    private void takePicture() throws{
+    private void takePicture() {
 
         Image image;
         try {
@@ -420,9 +424,9 @@ public class MainActivity extends AppCompatActivity {
 
         Node node = new Node();
         node.setParent(arFragment.getArSceneView().getScene());
-
         node.setRenderable(viewRenderable);
-
+        Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
+        node.setWorldPosition(cameraPosition);
     }
 
 

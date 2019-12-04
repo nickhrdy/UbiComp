@@ -62,6 +62,7 @@ import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.ar.core.ArImage;
+import com.google.ar.core.Frame;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.rendering.ModelRenderable;
@@ -137,7 +138,6 @@ public class MainActivity extends AppCompatActivity {
 
     //Ar core
     private ArFragment arFragment;
-    private ModelRenderable andyRenderable;
     private ViewRenderable viewRenderable;
 
     @Override
@@ -199,16 +199,7 @@ public class MainActivity extends AppCompatActivity {
         };
 
 
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    takePicture();
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
+        button.setOnClickListener(v -> takePicture() );
     }
 
 
@@ -360,11 +351,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    private void takePicture() throws CameraAccessException {
+    private void takePicture() throws{
 
-        Image image = null;
+        Image image;
         try {
-            image = arFragment.getArSceneView().getArFrame().acquireCameraImage();
+            Frame frame =  arFragment.getArSceneView().getArFrame();
+            image = frame.acquireCameraImage();
+
             Log.d("Image Capture", String.valueOf(image.getFormat()));
         } catch (NotYetAvailableException e) {
             e.printStackTrace();
@@ -372,9 +365,7 @@ public class MainActivity extends AppCompatActivity {
         }
         Log.d("Image Capture", image.toString());
         runTextRecognition(image);
-
-
-
+        image.close();
     }
 
     @Override
@@ -387,9 +378,6 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-    public void ClearText(View Button) {
-        text.clearComposingText();
-    }
 
     private void runTextRecognition(Image b) {
         FirebaseVisionImage image = FirebaseVisionImage.fromMediaImage(b, ORIENTATIONS.get(90));
@@ -397,12 +385,7 @@ public class MainActivity extends AppCompatActivity {
                 .getOnDeviceTextRecognizer();
         recognizer.processImage(image)
                 .addOnSuccessListener(
-                        new OnSuccessListener<FirebaseVisionText>() {
-                            @Override
-                            public void onSuccess(FirebaseVisionText texts) {
-                                processTextRecognitionResult(texts);
-                            }
-                        });
+                        texts -> processTextRecognitionResult(texts));
     }
 
     private void processTextRecognitionResult(FirebaseVisionText texts) {

@@ -62,8 +62,14 @@ import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.ar.core.ArImage;
+import com.google.ar.core.Config;
 import com.google.ar.core.Frame;
+import com.google.ar.core.Session;
 import com.google.ar.core.exceptions.NotYetAvailableException;
+import com.google.ar.core.exceptions.UnavailableApkTooOldException;
+import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
+import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
+import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.ModelRenderable;
@@ -155,6 +161,25 @@ public class MainActivity extends AppCompatActivity {
         arFragment.getPlaneDiscoveryController().hide();
         arFragment.getPlaneDiscoveryController().setInstructionView(null);
         arFragment.getArSceneView().getPlaneRenderer().setEnabled(false);
+        Session session;
+        try {
+            session = new Session(this);
+            Config config = new Config(session);
+            config.setFocusMode(Config.FocusMode.AUTO);
+            config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
+            session.configure(config);
+            arFragment.getArSceneView().setupSession(session);
+        } catch (UnavailableArcoreNotInstalledException e) {
+            e.printStackTrace();
+        } catch (UnavailableApkTooOldException e) {
+            e.printStackTrace();
+        } catch (UnavailableSdkTooOldException e) {
+            e.printStackTrace();
+        } catch (UnavailableDeviceNotCompatibleException e) {
+            e.printStackTrace();
+        }
+
+
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
         mLocationRequest = new LocationRequest();

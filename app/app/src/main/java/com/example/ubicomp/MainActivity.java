@@ -6,9 +6,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Camera;
+import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
 import android.graphics.RectF;
@@ -54,6 +52,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -64,11 +63,27 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.tasks.OnSuccessListener;
+import com.google.ar.core.ArImage;
+import com.google.ar.core.Config;
+import com.google.ar.core.Frame;
+import com.google.ar.core.Session;
+import com.google.ar.core.exceptions.NotYetAvailableException;
+import com.google.ar.core.exceptions.UnavailableApkTooOldException;
+import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
+import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
+import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
+import com.google.ar.sceneform.Node;
+import com.google.ar.sceneform.math.Vector3;
+import com.google.ar.sceneform.rendering.ModelRenderable;
+import com.google.ar.sceneform.rendering.ViewRenderable;
+import com.google.ar.sceneform.ux.ArFragment;
 import com.google.firebase.ml.vision.FirebaseVision;
 import com.google.firebase.ml.vision.common.FirebaseVisionImage;
 import com.google.firebase.ml.vision.common.FirebaseVisionImageMetadata;
 import com.google.firebase.ml.vision.text.FirebaseVisionText;
 import com.google.firebase.ml.vision.text.FirebaseVisionTextRecognizer;
+
+import org.w3c.dom.Text;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -91,6 +106,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Arrays;
+import java.util.Vector;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
@@ -131,7 +147,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private String cameraId;
     CameraDevice cameraDevice;
     CameraCaptureSession cameraCaptureSession;
-    CaptureRequest captureRequest;
     CaptureRequest.Builder captureRequestBuilder;
     private Size imageDimensions;
     Handler mBackgroundHandler;
@@ -154,6 +169,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private float[] mGeomagnetic;
     private float azimuth;
 
+
     // Network Connectivity
     //      Keep a reference to the NetworkFragment, which owns the AsyncTask object
     //      that is used to execute network ops.
@@ -162,6 +178,10 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     //      Boolean telling us whether a download is in progress, so we don't trigger overlapping
     //      downloads with consecutive button clicks.
     private boolean downloading = false;
+
+    //Ar core
+    private ArFragment arFragment;
+    private ViewRenderable viewRenderable;
 
 
     @Override
@@ -173,6 +193,28 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         button = findViewById(R.id.button);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
+        arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
+        arFragment.getPlaneDiscoveryController().hide();
+        arFragment.getPlaneDiscoveryController().setInstructionView(null);
+        arFragment.getArSceneView().getPlaneRenderer().setEnabled(false);
+        Session session;
+        try {
+            session = new Session(this);
+            Config config = new Config(session);
+            config.setFocusMode(Config.FocusMode.AUTO);
+            config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
+            session.configure(config);
+            arFragment.getArSceneView().setupSession(session);
+        } catch (UnavailableArcoreNotInstalledException e) {
+            e.printStackTrace();
+        } catch (UnavailableApkTooOldException e) {
+            e.printStackTrace();
+        } catch (UnavailableSdkTooOldException e) {
+            e.printStackTrace();
+        } catch (UnavailableDeviceNotCompatibleException e) {
+            e.printStackTrace();
+        }
+
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -232,16 +274,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         };
 
 
-        button.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                try {
-                    takePicture();
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
+        button.setOnClickListener(v -> takePicture() );
     }
 
     private SSLContext trustCert() throws CertificateException,IOException, KeyStoreException,
@@ -266,6 +299,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         context.init(null, tmf.getTrustManagers(), null);
         return context;
     }
+
     private boolean pingServer(){
         System.out.println("pingServer");
         Runtime runtime = Runtime.getRuntime();
@@ -438,76 +472,36 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
     }
 
-
-    private void takePicture() throws CameraAccessException {
-        if (cameraDevice == null) {
-            return;
-        }
-
-        int width = 1920;
-        int height = 1080;
-
-        ImageReader reader = ImageReader.newInstance(width, height, ImageFormat.JPEG, 1);
-        List<Surface> outputSurfaces = new ArrayList<>(2);
-        outputSurfaces.add(reader.getSurface());
-        outputSurfaces.add(new Surface(textureView.getSurfaceTexture()));
-        final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-        captureBuilder.addTarget(reader.getSurface());
-        captureBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO);
-
-        final int rotation = getWindowManager().getDefaultDisplay().getRotation();
-        Log.d("Image Capture", "rotation " + ((Integer) rotation).toString() + " " + ORIENTATIONS.get(rotation));
-        captureBuilder.set(CaptureRequest.JPEG_ORIENTATION, ORIENTATIONS.get(1));
-
-        ImageReader.OnImageAvailableListener readerListener = new ImageReader.OnImageAvailableListener() {
-
-            @Override
-            public void onImageAvailable(ImageReader reader) {
-                Image image;
-                image = reader.acquireLatestImage();
-
-                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                byte[] bytes = new byte[buffer.capacity()];
-                buffer.get(bytes);
-                Bitmap bImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
-                boolean a = bImage == null;
-                Log.d("Image Capture", Boolean.toString(a));
-                runTextRecognition(bImage);
-            }
-        };
-
-        reader.setOnImageAvailableListener(readerListener, mBackgroundHandler);
-
-        final CameraCaptureSession.CaptureCallback captureListener = new CameraCaptureSession.CaptureCallback() {
-            @Override
-            public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-                super.onCaptureCompleted(session, request, result);
-
-                try {
-                    createCameraPreview();
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-        };
-
-        cameraDevice.createCaptureSession(outputSurfaces, new CameraCaptureSession.StateCallback() {
-            @Override
-            public void onConfigured(@NonNull CameraCaptureSession session) {
-                try {
-                    session.capture(captureBuilder.build(), captureListener, mBackgroundHandler);
-                } catch (CameraAccessException e) {
-                    e.printStackTrace();
-                }
-            }
-
-            @Override
-            public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-
-            }
-        }, mBackgroundHandler);
+    // Create View for ArCore renderables
+    private View createView(String s){
+        TextView view = new TextView(this);
+        view.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        view.setGravity(1);
+        view.setText(s);
+        view.setPadding(6, 6, 6, 6);
+        view.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        view.setBackgroundColor(Color.MAGENTA);
+        view.setTextColor(Color.WHITE);
+        return view;
     }
 
+
+    private void takePicture() {
+
+        Image image;
+        try {
+            Frame frame =  arFragment.getArSceneView().getArFrame();
+            image = frame.acquireCameraImage();
+
+            Log.d("Image Capture", String.valueOf(image.getFormat()));
+        } catch (NotYetAvailableException e) {
+            e.printStackTrace();
+            return;
+        }
+        Log.d("Image Capture", image.toString());
+        runTextRecognition(image);
+        image.close();
+    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -520,42 +514,50 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
 
-    public void ClearText(View Button) {
-        text.clearComposingText();
-    }
-
-
-    private void runTextRecognition(Bitmap b) {
-        FirebaseVisionImage image = FirebaseVisionImage.fromBitmap(b);
+    private void runTextRecognition(Image b) {
+        FirebaseVisionImage image = FirebaseVisionImage.fromMediaImage(b, ORIENTATIONS.get(90));
         FirebaseVisionTextRecognizer recognizer = FirebaseVision.getInstance()
                 .getOnDeviceTextRecognizer();
         recognizer.processImage(image)
                 .addOnSuccessListener(
-                        new OnSuccessListener<FirebaseVisionText>() {
-                            @Override
-                            public void onSuccess(FirebaseVisionText texts) {
-                                processTextRecognitionResult(texts);
-                            }
-                        });
+                        texts -> processTextRecognitionResult(texts));
     }
-
 
     private void processTextRecognitionResult(FirebaseVisionText texts) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
+        String s = "Default Text";
         for (int i = 0; i < blocks.size(); i++) {
             //Can't ge the confidence because we're not using cloud
             Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
+            s = blocks.get(i).getText();
+            Log.d("Firebase", "Done processing!");
+            new NetworkTask().execute();
+            break;
+
+
+            /* Leave this in case we need it again!
+
             List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
             for (int j = 0; j < lines.size(); j++) {
                 List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
                 for (int k = 0; k < elements.size(); k++) {
                     //Do something
                 }
-            }
+            }*/
         }
-        Log.d("Firebase", "Done processing!");
-        new NetworkTask().execute();
+
+        //Build the word as a renderable
+        ViewRenderable.builder()
+                .setView(this, createView(s))
+                .build()
+                .thenAccept(renderable -> viewRenderable = renderable);
+
+        Node node = new Node();
+        node.setParent(arFragment.getArSceneView().getScene());
+        node.setRenderable(viewRenderable);
+        Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
+        node.setWorldPosition(cameraPosition);
     }
 
 

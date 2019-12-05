@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, abort
+import time
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
@@ -42,6 +43,7 @@ def create_point_entry():
     :return: json
     """
     req = request.get_json(force=True)
+    req['time'] = int(time.time()) #The server will determine time instead of clients' phones
     entry = POINTS.push(req)
     print('content: {}'.format(req))
     return jsonify({'id': entry.key}), 201

@@ -56,4 +56,4 @@ def _ensure_point(id):
 
 # running web app in local machine
 if __name__ == '__main__':
-    app.run(ssl_context='adhoc', port=8888)
+    app.run(ssl_context='adhoc', host='0.0.0.0')

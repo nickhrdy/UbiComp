@@ -1,0 +1,10 @@
+[Unit]
+Description=UbiComp Flask Server
+
+[Service]
+ExecStart=/home/nicolashrdy/UbiComp/server/runserver.sh
+WorkingDirectory=/home/nicolashrdy/UbiComp/server
+User=nicolashrdy
+
+[Install]
+WantedBy=multi-user.target

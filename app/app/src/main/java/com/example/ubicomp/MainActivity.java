@@ -137,7 +137,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
     // View Objects
-    Button button;
+    Button button, button2;
     TextureView textureView;
     TextView text;
 
@@ -199,6 +199,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
+        button2 = findViewById(R.id.button2);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
@@ -276,6 +277,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         };
 
         button.setOnClickListener(v -> takePicture() );
+        button2.setOnClickListener(v -> new NetworkReceieveTask().execute());
     }
 
 
@@ -534,6 +536,14 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
     }
 
+    private class NetworkReceieveTask extends AsyncTask<URL, Integer, Long> {
+        @Override
+        protected Long doInBackground(URL... urls){
+            receiveData();
+            return null;
+        }
+    }
+
     @Override
     public void updateFromDownload(String result) {
         // TODO fill this in with a UI  update based on the result of the webpage.
@@ -603,6 +613,29 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         postRequest(postUrl, postBody);
     }
 
+    void receiveData(){
+
+        OkHttpClient preconfiguredClient = new OkHttpClient();
+        OkHttpClient client = trustAllSslClient(preconfiguredClient);
+        Request request = new Request.Builder()
+
+                .url("http://35.245.208.104/api/nearme?latitude=0&longitude=0")
+                .build();
+
+        try {
+            HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
+        }
+        catch (Exception e) {
+            Log.d("Flask", e.getMessage());
+        }
+
+        try (Response response = client.newCall(request).execute()) {
+            String result = response.body().string();
+            text.append(result);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     private SSLContext trustCert() throws CertificateException,IOException, KeyStoreException,
             NoSuchAlgorithmException, KeyManagementException {
@@ -745,6 +778,37 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                 runOnUiThread(() -> Log.e("Network", "Request Successful!"));
             }
         });
+    }
+
+    String getRequest(String url) throws  IOException{
+        OkHttpClient preconfiguredClient = new OkHttpClient();
+        OkHttpClient client = trustAllSslClient(preconfiguredClient);
+        Request request = new Request.Builder()
+                .url(url)
+                .build();
+
+        try {client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, final IOException e) {
+                // Cancel the post on failure.
+                call.cancel();
+
+                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
+                runOnUiThread(() -> {
+                    Log.e("Network", "Request Failed", e);
+                });
+            }
+
+            @Override
+            public void onResponse(Call call, final Response response) throws IOException {
+                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
+                text.append(response.body().string());
+                runOnUiThread(() -> Log.e("Network", "Request Successful!"));
+            }
+        });} catch(Exception e){
+
+        }
+        return "";
     }
 
     //*******************

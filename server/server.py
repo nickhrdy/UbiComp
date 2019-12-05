@@ -35,6 +35,17 @@ def get_point(id):
     """
     return jsonify(_ensure_point(id))
 
+@app.route('/nearme')
+def get_nearby_points():
+    latitude = request.args.get('latitude')
+    longitude = request.args.get('longitude')
+    if not latitude or not longitude:
+        return jsonify([])
+    collection = POINTS.get()
+    print(collection)
+
+    return jsonify(collection)
+
 # POST
 @app.route('/points', methods=['POST'])
 def create_point_entry():
@@ -48,7 +59,6 @@ def create_point_entry():
     print('content: {}'.format(req))
     return jsonify({'id': entry.key}), 201
 
-
 def _ensure_point(id):
     point = POINTS.child(id).get()
     if not point:
@@ -58,4 +68,4 @@ def _ensure_point(id):
 
 # running web app in local machine
 if __name__ == '__main__':
-    app.run(ssl_context='adhoc', host='0.0.0.0')
+    app.run(ssl_context='adhoc',  port=5000)

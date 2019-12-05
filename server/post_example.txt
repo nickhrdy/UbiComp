@@ -1,0 +1,1 @@
+curl --insecure -v -X POST -d @test_payload.json -H Content-type: application/json https://localhost:8888/points

@@ -539,7 +539,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private class NetworkReceieveTask extends AsyncTask<URL, Integer, Long> {
         @Override
         protected Long doInBackground(URL... urls){
-            receiveData();
+            //receiveData();
             return null;
         }
     }
@@ -629,9 +629,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             Log.d("Flask", e.getMessage());
         }
 
-        try (Response response = client.newCall(request).execute()) {
+        try {
+            Response response = client.newCall(request).execute();
             String result = response.body().string();
-            text.append(result);
+            //runOnUiThread(() -> {
+            //    try{text.append(response.body().string());}catch(IOException e){}
+            //});
+
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -802,9 +806,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             @Override
             public void onResponse(Call call, final Response response) throws IOException {
                 // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
-                text.append(response.body().string());
-                runOnUiThread(() -> Log.e("Network", "Request Successful!"));
-            }
+
+                runOnUiThread(() -> {
+
+                    try{text.append(response.body().string());}catch(IOException e){}
+                });
+                }
         });} catch(Exception e){
 
         }

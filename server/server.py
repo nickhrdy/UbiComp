@@ -7,8 +7,8 @@ from firebase_admin import db
 cred = credentials.Certificate("ubicomp-b6a69-firebase-adminsdk-sogla-035a5bc421.json")
 my_app = firebase_admin.initialize_app(cred,
                                        {
-    'databaseURL': 'https://ubicomp-b6a69.firebaseio.com'
-})
+                                        'databaseURL': 'https://ubicomp-b6a69.firebaseio.com'
+                                       })
 print(my_app.project_id)
 
 # As an admin, the app has access to read and write all data, regradless of Security Rules
@@ -25,6 +25,7 @@ def index():
     """
     return {'data': 'UbiComp Flask Service'}
 
+
 # GET
 @app.route('/points/<id>')
 def get_point(id):
@@ -35,23 +36,24 @@ def get_point(id):
     """
     return jsonify(_ensure_point(id))
 
+
 @app.route('/nearme')
 def get_nearby_points():
-    latitude = request.args.get('latitude')
-    longitude = request.args.get('longitude')
+    latitude = float(request.args.get('latitude'))
+    longitude = float(request.args.get('longitude'))
+    tolerance = 0.5
     if not latitude or not longitude:
         return jsonify([])
-    collection = POINTS \
-    .order_by_child('time') \
-    .start_at(int(time.time()) - (3600 * 24)).end_at(int(time.time()) + (3600 * 24))\
-    .get()
+    collection = POINTS.order_by_child('time').start_at(int(time.time()) - (3600 * 24)).end_at(int(time.time()) + (3600 * 24)).get()
 
-    ugh = list(filter(lambda x: float(x['latitude']) >= latitude - 0.00005 and float(x['latitude']) <= latitude + 0.00005 \
-    and float(x['longitude']) >= latitude - 0.00005 and float(x['longitude']) <= latitude + 0.00005, collection))
-    
-    print(ugh)
+    b = {}
+    # TODO: MAKE THIS USE FILTER()
+    for key, item in collection.items():
+        if float(item['latitude']) >= latitude - tolerance and float(item['latitude']) <= \
+                latitude + tolerance and float(item['longitude']) >= longitude - tolerance and float(item['longitude']) <= longitude + tolerance:
+            b[key] = item
 
-    return jsonify(ugh)
+    return jsonify(b)
 
 # POST
 @app.route('/points', methods=['POST'])
@@ -61,10 +63,11 @@ def create_point_entry():
     :return: json
     """
     req = request.get_json(force=True)
-    req['time'] = int(time.time()) #The server will determine time instead of clients' phones
+    req['time'] = int(time.time())  # The server will determine time instead of clients' phones
     entry = POINTS.push(req)
     print('content: {}'.format(req))
     return jsonify({'id': entry.key}), 201
+
 
 def _ensure_point(id):
     point = POINTS.child(id).get()

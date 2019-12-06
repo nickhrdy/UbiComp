@@ -41,10 +41,17 @@ def get_nearby_points():
     longitude = request.args.get('longitude')
     if not latitude or not longitude:
         return jsonify([])
-    collection = POINTS.get()
-    print(collection)
+    collection = POINTS \
+    .order_by_child('time') \
+    .start_at(int(time.time()) - (3600 * 24)).end_at(int(time.time()) + (3600 * 24))\
+    .get()
 
-    return jsonify(collection)
+    ugh = list(filter(lambda x: float(x['latitude']) >= latitude - 0.00005 and float(x['latitude']) <= latitude + 0.00005 \
+    and float(x['longitude']) >= latitude - 0.00005 and float(x['longitude']) <= latitude + 0.00005, collection))
+    
+    print(ugh)
+
+    return jsonify(ugh)
 
 # POST
 @app.route('/points', methods=['POST'])

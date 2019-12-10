@@ -32,6 +32,7 @@ import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.FragmentActivity;
 
+import android.os.Debug;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -79,6 +80,7 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 
 import javax.net.ssl.HostnameVerifier;
@@ -536,11 +538,15 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
     }
 
-    private class NetworkReceieveTask extends AsyncTask<URL, Integer, Long> {
+    private class NetworkReceieveTask extends AsyncTask<URL, Integer, JSONObject> {
         @Override
-        protected Long doInBackground(URL... urls){
-            //receiveData();
-            return null;
+        protected JSONObject doInBackground(URL... urls){
+            return receiveData();
+        }
+
+        @Override
+        protected  void onPostExecute(JSONObject json){
+            placeNodes(json);
         }
     }
 
@@ -572,17 +578,15 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
                 break;
             case DownloadCallback.Progress.GET_INPUT_STREAM_SUCCESS:
-
                 break;
             case DownloadCallback.Progress.PROCESS_INPUT_STREAM_IN_PROGRESS:
-
                 break;
-            case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
+
+      case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
 
                 break;
         }
     }
-
     @Override
     public void finishDownloading() {
         downloading = false;
@@ -613,13 +617,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         postRequest(postUrl, postBody);
     }
 
-    void receiveData(){
-
+    JSONObject receiveData(){
         OkHttpClient preconfiguredClient = new OkHttpClient();
         OkHttpClient client = trustAllSslClient(preconfiguredClient);
+        JSONObject json = null;
         Request request = new Request.Builder()
-
-                .url("http://35.245.208.104/api/nearme?latitude=0&longitude=0")
+                .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
                 .build();
 
         try {
@@ -632,13 +635,61 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         try {
             Response response = client.newCall(request).execute();
             String result = response.body().string();
-            //runOnUiThread(() -> {
-            //    try{text.append(response.body().string());}catch(IOException e){}
-            //});
-
+            Log.d("Flask", result);
+            json = new JSONObject(result);
         } catch (IOException e) {
             e.printStackTrace();
+        } catch (JSONException e){
+
+        } finally {
+            return json;
         }
+    }
+
+    private void placeNode(String s){
+        // Build the word as a renderable
+        ViewRenderable.builder()
+                .setView(this, createView(s))
+                .build()
+                .thenAccept(renderable -> viewRenderable = renderable);
+
+        // Set the renderable in the scene
+        // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
+        Node node = new Node();
+        node.setParent(arFragment.getArSceneView().getScene());
+        node.setRenderable(viewRenderable);
+        Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
+        node.setWorldPosition(cameraPosition);
+    }
+
+    private void placeNodes(JSONObject json){
+        Iterator<String> iterator = json.keys();
+        String key;
+        JSONObject payload;
+        do{
+            try {
+                key = iterator.next();
+                Log.d("Flask", "key:" + key);
+                payload = json.getJSONObject(key);
+                //skip proper placement for right now
+
+                String text = payload.getString("text");
+
+                ViewRenderable.builder()
+                        .setView(this, createView(text))
+                        .build()
+                        .thenAccept(renderable -> viewRenderable = renderable);
+
+                Node node = new Node();
+                node.setParent(arFragment.getArSceneView().getScene());
+                node.setRenderable(viewRenderable);
+                Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
+                node.setWorldPosition(cameraPosition);
+            }
+            catch(JSONException e){
+                Log.d("Flask", "Hit an error!");
+            }
+        }while(iterator.hasNext());
     }
 
     private SSLContext trustCert() throws CertificateException,IOException, KeyStoreException,

@@ -216,6 +216,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             Config config = new Config(session);
             config.setFocusMode(Config.FocusMode.AUTO);
             config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
+            config.setPlaneFindingMode(Config.PlaneFindingMode.DISABLED);
             session.configure(config);
             arFragment.getArSceneView().setupSession(session);
         } catch (UnavailableArcoreNotInstalledException e) {

@@ -63,6 +63,7 @@ import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.math.Vector3;
+import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
 import com.google.ar.sceneform.ux.ArFragment;
 import com.google.firebase.ml.vision.FirebaseVision;
@@ -82,6 +83,7 @@ import java.security.cert.CertificateFactory;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
@@ -513,20 +515,49 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         ViewRenderable.builder()
                 .setView(this, createView(s))
                 .build()
-                .thenAccept(renderable -> viewRenderable = renderable);
+                .thenAccept(renderable -> addObjectToScene(renderable));
 
         // Set the renderable in the scene
         // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
+
+    }
+
+
+    /**
+     * Adds a model to the scene at the device's current position
+     * @param model model to render
+     */
+    private void addObjectToScene(Renderable model){
         Node node = new Node();
         node.setParent(arFragment.getArSceneView().getScene());
-        node.setRenderable(viewRenderable);
+        node.setRenderable(model);
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
         node.setWorldPosition(cameraPosition);
     }
 
+    /**
+     * Adds a model to the scene at the given latitude and longitude
+     * @param model
+     * @param latitude
+     * @param longitude
+     */
+    private void addObjectToScene(Renderable model, double latitude, double longitude, double bearing){
+        Node node = new Node();
+        node.setParent(arFragment.getArSceneView().getScene());
+        node.setRenderable(model);
+        double cameraLatitude = mLocation.getLatitude();
+        double cameraLongitude = mLocation.getLongitude();
+        Vector3 toObject = new Vector3((float)(latitude - cameraLatitude), (float)(longitude - cameraLongitude), 0);
+
+        Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
+        node.setWorldPosition(Vector3.add(cameraPosition, toObject));
+    }
+
+
     //*******************
     // NETWORK
     //*******************
+
 
     /**
      * Task to handle posting information to the server
@@ -652,21 +683,16 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         ViewRenderable.builder()
                 .setView(this, createView(s))
                 .build()
-                .thenAccept(renderable -> viewRenderable = renderable);
-
+                .thenAccept(renderable -> addObjectToScene(renderable));
         // Set the renderable in the scene
         // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
-        Node node = new Node();
-        node.setParent(arFragment.getArSceneView().getScene());
-        node.setRenderable(viewRenderable);
-        Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        node.setWorldPosition(cameraPosition);
     }
 
     private void placeNodes(JSONObject json){
         Iterator<String> iterator = json.keys();
         String key;
         JSONObject payload;
+
         do{
             try {
                 key = iterator.next();
@@ -675,17 +701,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                 //skip proper placement for right now
 
                 String text = payload.getString("text");
+                final double latitude = payload.getDouble("latitude");
+                final double longitude = payload.getDouble("longitude");
 
                 ViewRenderable.builder()
                         .setView(this, createView(text))
                         .build()
-                        .thenAccept(renderable -> viewRenderable = renderable);
-
-                Node node = new Node();
-                node.setParent(arFragment.getArSceneView().getScene());
-                node.setRenderable(viewRenderable);
-                Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-                node.setWorldPosition(cameraPosition);
+                        .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, 0));
             }
             catch(JSONException e){
                 Log.d("Flask", "Hit an error!");

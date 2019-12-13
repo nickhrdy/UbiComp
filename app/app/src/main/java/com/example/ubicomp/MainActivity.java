@@ -61,7 +61,9 @@ import com.google.ar.core.exceptions.UnavailableApkTooOldException;
 import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
+import com.google.ar.sceneform.AnchorNode;
 import com.google.ar.sceneform.Node;
+import com.google.ar.sceneform.math.Quaternion;
 import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
@@ -83,6 +85,7 @@ import java.security.cert.CertificateFactory;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Vector;
 import java.util.concurrent.CompletableFuture;
 
 import javax.net.ssl.HostnameVerifier;
@@ -182,6 +185,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private float[] mGeomagnetic;
     private float azimuth;
 
+    //key of points
+    private JSONObject points_key;
 
     // Network Connectivity
     //      Keep a reference to the NetworkFragment, which owns the AsyncTask object
@@ -200,7 +205,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
+        points_key = new JSONObject();
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
         button2 = findViewById(R.id.button2);
@@ -231,6 +236,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         } catch (UnavailableDeviceNotCompatibleException e) {
             e.printStackTrace();
         }
+
+        AnchorNode anchorNode = new AnchorNode(session.)
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -532,7 +539,11 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         node.setParent(arFragment.getArSceneView().getScene());
         node.setRenderable(model);
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        node.setWorldPosition(cameraPosition);
+
+        Quaternion q = arFragment.getArSceneView().getScene().getCamera().getWorldRotation();
+        Vector3 forw = Quaternion.rotateVector(q, Vector3.forward());
+
+        node.setWorldPosition(Vector3.add(cameraPosition, forw));
     }
 
     /**
@@ -550,7 +561,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Vector3 toObject = new Vector3((float)(latitude - cameraLatitude), (float)(longitude - cameraLongitude), 0);
 
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        node.setWorldPosition(Vector3.add(cameraPosition, toObject));
+        Log.d("Boom", "Camera: "  + cameraPosition.toString());
+        Log.d("Boom", "Normalized: " + toObject.normalized().toString());
+        Log.d("Boom", "Corrected: " + toObject.normalized().scaled((float)calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude)));
+        Log.d("Boom", "ToObject: " + toObject.toString());
+        node.setWorldPosition(Vector3.add(cameraPosition, toObject.normalized().scaled((float)calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude))));
+
     }
 
 
@@ -599,26 +615,35 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         return networkInfo;
     }
 
+    public double calculateHaversine(double lat1, double long1, double lat2, double long2){
+        final double earthRadius = 6378.137;
+        double dLat = lat2 * Math.PI / 180 - lat1 * Math.PI / 180;
+        double dLong = long2 * Math.PI / 180 - long1 * Math.PI / 180;
+        double a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                        Math.sin(dLong/2) * Math.sin(dLong/2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        double d = earthRadius * c;
+        return d * 1000;
+    }
+
     @Override
     public void onProgressUpdate(int progressCode, int percentComplete) {
         switch(progressCode) {
             // You can add UI behavior for progress updates here.
             case DownloadCallback.Progress.ERROR:
-
                 break;
             case DownloadCallback.Progress.CONNECT_SUCCESS:
-
                 break;
             case DownloadCallback.Progress.GET_INPUT_STREAM_SUCCESS:
                 break;
             case DownloadCallback.Progress.PROCESS_INPUT_STREAM_IN_PROGRESS:
                 break;
-
-      case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
-
+            case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
                 break;
         }
     }
+
     @Override
     public void finishDownloading() {
         downloading = false;
@@ -656,7 +681,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Request request = new Request.Builder()
                 .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
                 .build();
-
         try {
             HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
         }
@@ -696,18 +720,22 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         do{
             try {
                 key = iterator.next();
-                Log.d("Flask", "key:" + key);
-                payload = json.getJSONObject(key);
-                //skip proper placement for right now
+                if(points_key.has(key) == false) {
+                    points_key.put(key, 0); //Add the record to the internal list
+                    Log.d("Flask", "key:" + key);
+                    payload = json.getJSONObject(key);
+                    //skip proper placement for right now
 
-                String text = payload.getString("text");
-                final double latitude = payload.getDouble("latitude");
-                final double longitude = payload.getDouble("longitude");
+                    String text = payload.getString("text");
+                    final double latitude = payload.getDouble("latitude");
+                    final double longitude = payload.getDouble("longitude");
 
-                ViewRenderable.builder()
-                        .setView(this, createView(text))
-                        .build()
-                        .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, 0));
+                    ViewRenderable.builder()
+                            .setView(this, createView(text))
+                            .build()
+                            .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, 0));
+
+                }
             }
             catch(JSONException e){
                 Log.d("Flask", "Hit an error!");
@@ -852,8 +880,24 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
             @Override
             public void onResponse(Call call, final Response response) {
+                try {
+
+                //find out how the response is structured
+                    final String message = response.body().string();
+                if(points_key.has(message) == false){
+                        points_key.put(message, 0);
+                }
+
+
                 // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
-                runOnUiThread(() -> Log.e("Network", "Request Successful!"));
+
+                    runOnUiThread(() -> Log.e("Network", message + "    Request Successful!"));
+
+                } catch (IOException e){
+
+                } catch( JSONException e) {
+
+                }
             }
         });
     }

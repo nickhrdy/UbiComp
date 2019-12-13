@@ -66,7 +66,7 @@ def create_point_entry():
     req['time'] = int(time.time())  # The server will determine time instead of clients' phones
     entry = POINTS.push(req)
     print('content: {}'.format(req))
-    return jsonify({'id': entry.key}), 201
+    return entry.key, 201
 
 
 def _ensure_point(id):

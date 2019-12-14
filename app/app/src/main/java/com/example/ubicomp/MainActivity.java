@@ -53,8 +53,11 @@ import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
+import com.google.ar.core.Anchor;
 import com.google.ar.core.Config;
 import com.google.ar.core.Frame;
+import com.google.ar.core.HitResult;
+import com.google.ar.core.Pose;
 import com.google.ar.core.Session;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.core.exceptions.UnavailableApkTooOldException;
@@ -199,7 +202,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     //Ar core
     private ArFragment arFragment;
     private ViewRenderable viewRenderable;
-
+    private Anchor anchor;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -212,18 +215,19 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
-        arFragment.getPlaneDiscoveryController().hide();
-        arFragment.getPlaneDiscoveryController().setInstructionView(null);
-        arFragment.getArSceneView().getPlaneRenderer().setEnabled(false);
+        //arFragment.getPlaneDiscoveryController().hide();
+        //arFragment.getPlaneDiscoveryController().setInstructionView(null);
+        arFragment.getArSceneView().getPlaneRenderer().setEnabled(true);
 
         // set-up session so the camera auto-focuses
-        Session session;
+        Session session = null;
         try {
             session = new Session(this);
             Config config = new Config(session);
             config.setFocusMode(Config.FocusMode.AUTO);
             config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
-            config.setPlaneFindingMode(Config.PlaneFindingMode.DISABLED);
+            config.setCloudAnchorMode(Config.CloudAnchorMode.DISABLED);
+            config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
             session.configure(config);
             arFragment.getArSceneView().setupSession(session);
         } catch (UnavailableArcoreNotInstalledException e) {
@@ -237,7 +241,11 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             e.printStackTrace();
         }
 
-        AnchorNode anchorNode = new AnchorNode(session.)
+        float[] translation = {0,0,0};
+        float[] rotation = {0,0,0,0};
+
+
+        //anchor = session.createAnchor(new Pose(translation, rotation));
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -449,8 +457,15 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private void takePicture() {
 
         Image image;
+        List<HitResult> hits;
+        HitResult hit;
         try {
             Frame frame =  arFragment.getArSceneView().getArFrame();
+            hits = frame.hitTest(0,0);
+            if(hits.size() == 0){
+                return;
+            }
+            hit = hits.get(0);
             image = frame.acquireCameraImage();
 
             Log.d("Image Capture", String.valueOf(image.getFormat()));
@@ -459,7 +474,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             return;
         }
         Log.d("Image Capture", image.toString());
-        runTextRecognition(image);
+        runTextRecognition(image, hit);
         image.close();
     }
 
@@ -481,20 +496,20 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * Starts Firebase Processing workflow
      * @param image Image to process
      */
-    private void runTextRecognition(Image image) {
+    private void runTextRecognition(Image image, HitResult hit) {
         FirebaseVisionImage firebaseVisionImage = FirebaseVisionImage.fromMediaImage(image, ORIENTATIONS.get(90));
         FirebaseVisionTextRecognizer recognizer = FirebaseVision.getInstance()
                 .getOnDeviceTextRecognizer();
         recognizer.processImage(firebaseVisionImage)
                 .addOnSuccessListener(
-                        texts -> processTextRecognitionResult(texts));
+                        texts -> processTextRecognitionResult(texts, hit));
     }
 
     /**
      * Processes Firebase text detection results, POSTs them to the database, and create a node in the world
      * @param texts Firebase processing results
      */
-    private void processTextRecognitionResult(FirebaseVisionText texts) {
+    private void processTextRecognitionResult(FirebaseVisionText texts, HitResult hit) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
         String s = "Default Text";
         for (int i = 0; i < blocks.size(); i++) {
@@ -522,8 +537,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         ViewRenderable.builder()
                 .setView(this, createView(s))
                 .build()
-                .thenAccept(renderable -> addObjectToScene(renderable));
-
+                .thenAccept(renderable -> addObjectToScene(renderable, hit));
         // Set the renderable in the scene
         // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
 
@@ -534,16 +548,31 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * Adds a model to the scene at the device's current position
      * @param model model to render
      */
-    private void addObjectToScene(Renderable model){
-        Node node = new Node();
-        node.setParent(arFragment.getArSceneView().getScene());
-        node.setRenderable(model);
+    private void addObjectToScene(Renderable model, HitResult hit){
+        /*
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
 
         Quaternion q = arFragment.getArSceneView().getScene().getCamera().getWorldRotation();
         Vector3 forw = Quaternion.rotateVector(q, Vector3.forward());
 
-        node.setWorldPosition(Vector3.add(cameraPosition, forw));
+        Vector3 vec = Vector3.add(cameraPosition, forw);
+
+        float[] t = {vec.x, vec.y, vec.z};
+        float[] r = {q.x, q.y, q.z, q.w};
+
+
+        Log.d("Add", t.toString());
+        Log.d("Add", r.toString());
+        */
+
+        Anchor a = arFragment.getArSceneView().getSession().createAnchor(hit.getHitPose());
+
+        Log.d("Add", arFragment.getArSceneView().getSession().getAllAnchors().toString());
+        AnchorNode node = new AnchorNode(a);
+        node.setRenderable(model);
+
+        Log.d("Add", String.valueOf(node.isTracking()));
+
     }
 
     /**
@@ -702,15 +731,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
     }
 
-    private void placeNode(String s){
-        // Build the word as a renderable
-        ViewRenderable.builder()
-                .setView(this, createView(s))
-                .build()
-                .thenAccept(renderable -> addObjectToScene(renderable));
-        // Set the renderable in the scene
-        // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
-    }
 
     private void placeNodes(JSONObject json){
         Iterator<String> iterator = json.keys();

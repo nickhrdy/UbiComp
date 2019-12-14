@@ -157,6 +157,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
+    private enum NODE_TYPE {RECEIVED, CREATE}
+
     //Camera properties
     private String cameraId;
     CameraDevice cameraDevice;
@@ -433,14 +435,23 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
     // Create View for ArCore renderables
-    private View createView(String s){
+    private View createView(String s, NODE_TYPE type){
         TextView view = new TextView(this);
         view.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         view.setGravity(1);
         view.setText(s);
         view.setPadding(6, 6, 6, 6);
         view.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
-        view.setBackgroundColor(Color.MAGENTA);
+        if(type == NODE_TYPE.CREATE) {
+            view.setBackgroundColor(Color.MAGENTA);
+        }
+        else if(type == NODE_TYPE.RECEIVED){
+            view.setBackgroundColor(Color.BLUE);
+        }
+        else{
+            Log.wtf("Models", "Unknown model type");
+            view.setBackgroundColor(Color.BLACK);
+        }
         view.setTextColor(Color.WHITE);
         return view;
     }
@@ -511,12 +522,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      */
     private void processTextRecognitionResult(FirebaseVisionText texts, HitResult hitResult) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
-        String s = null;
+        String blockText = null;
         for (int i = 0; i < blocks.size(); i++) {
             // Can't ge the confidence because we're not using cloud
             Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
-            s = blocks.get(i).getText();
+            blockText = blocks.get(i).getText();
 
 
             //calculate position of text
@@ -535,7 +546,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             double latitude = (lat2 * 180 / Math.PI);
             double longitude = (lon2 * 180 / Math.PI);
 
-            payload = new Payload(90 - latitude, -90 + longitude, currAzimuth, s);
+            payload = new Payload(90 - latitude, -90 + longitude, currAzimuth, blockText);
             Log.d("Firebase", "Done processing!");
 
             new NetworkTask().execute(); // Upload the data to the database
@@ -552,7 +563,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
 
         // Quit and notify if text wasn't found
-        if(s == null){
+        if(blockText == null){
             Log.w("Firebase", "Text not found!");
             Toast.makeText(this, "No text found!", Toast.LENGTH_SHORT).show();
             return;
@@ -560,7 +571,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
         // Build the word as a renderable
         ViewRenderable.builder()
-                .setView(this, createView(s))
+                .setView(this, createView(blockText, NODE_TYPE.CREATE))
                 .build()
                 .thenAccept(renderable -> addObjectToScene(renderable, hitResult));
     }
@@ -792,7 +803,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     final double bearing = payload.getDouble("azimuth");
 
                     ViewRenderable.builder()
-                            .setView(this, createView(text))
+                            .setView(this, createView(text, NODE_TYPE.RECEIVED))
                             .build()
                             .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, bearing));
                 }

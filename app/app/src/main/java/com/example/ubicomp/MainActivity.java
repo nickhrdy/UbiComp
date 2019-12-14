@@ -32,10 +32,10 @@ import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.FragmentActivity;
 
-import android.os.Debug;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
@@ -53,15 +53,18 @@ import com.google.android.gms.location.LocationCallback;
 import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
+import com.google.ar.core.Anchor;
 import com.google.ar.core.Config;
 import com.google.ar.core.Frame;
+import com.google.ar.core.HitResult;
+import com.google.ar.core.Pose;
 import com.google.ar.core.Session;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.core.exceptions.UnavailableApkTooOldException;
 import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
-import com.google.ar.sceneform.Node;
+import com.google.ar.sceneform.AnchorNode;
 import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
@@ -83,7 +86,6 @@ import java.security.cert.CertificateFactory;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
@@ -182,6 +184,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private float[] mGeomagnetic;
     private float azimuth;
 
+    //key of points
+    private JSONObject pointsKey;
 
     // Network Connectivity
     //      Keep a reference to the NetworkFragment, which owns the AsyncTask object
@@ -195,30 +199,30 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private ArFragment arFragment;
     private ViewRenderable viewRenderable;
 
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
+        pointsKey = new JSONObject();
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
         button2 = findViewById(R.id.button2);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
-        arFragment.getPlaneDiscoveryController().hide();
-        arFragment.getPlaneDiscoveryController().setInstructionView(null);
-        arFragment.getArSceneView().getPlaneRenderer().setEnabled(false);
+        //arFragment.getPlaneDiscoveryController().hide();
+        //arFragment.getPlaneDiscoveryController().setInstructionView(null);
+        arFragment.getArSceneView().getPlaneRenderer().setEnabled(true);
 
         // set-up session so the camera auto-focuses
-        Session session;
+        Session session = null;
         try {
             session = new Session(this);
             Config config = new Config(session);
             config.setFocusMode(Config.FocusMode.AUTO);
             config.setUpdateMode(Config.UpdateMode.LATEST_CAMERA_IMAGE);
-            config.setPlaneFindingMode(Config.PlaneFindingMode.DISABLED);
+            config.setCloudAnchorMode(Config.CloudAnchorMode.ENABLED);
+            config.setPlaneFindingMode(Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL);
             session.configure(config);
             arFragment.getArSceneView().setupSession(session);
         } catch (UnavailableArcoreNotInstalledException e) {
@@ -231,6 +235,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         } catch (UnavailableDeviceNotCompatibleException e) {
             e.printStackTrace();
         }
+
+        float[] translation = {0,0,0};
+        float[] rotation = {0,0,0,0};
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -442,18 +449,32 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private void takePicture() {
 
         Image image;
+        List<HitResult> hits;
+        HitResult hit;
         try {
             Frame frame =  arFragment.getArSceneView().getArFrame();
+            DisplayMetrics displayMetrics = new DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getMetrics(displayMetrics);
+            hits = frame.hitTest(displayMetrics.heightPixels/2,displayMetrics.widthPixels/2); //get hit result based on phone coord
+
+            if(hits.isEmpty() == true){
+                Log.e("Image Capture", "No Planes detected!");
+                Toast.makeText(this, "No planes detected!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            hit = hits.get(0);
             image = frame.acquireCameraImage();
 
             Log.d("Image Capture", String.valueOf(image.getFormat()));
         } catch (NotYetAvailableException e) {
             e.printStackTrace();
+            Log.e("Image Capture", "Resource not yet available!");
+            Toast.makeText(this, "Resource not ready. Try again in a few seconds!", Toast.LENGTH_SHORT).show();
             return;
         }
-        Log.d("Image Capture", image.toString());
-        runTextRecognition(image);
-        image.close();
+        Log.d("Image Capture", "Image capture successful! Running recognition.");
+        runTextRecognition(image, hit);
+        image.close(); // close image to save resources
     }
 
     @Override
@@ -474,34 +495,53 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * Starts Firebase Processing workflow
      * @param image Image to process
      */
-    private void runTextRecognition(Image image) {
+    private void runTextRecognition(Image image, HitResult hit) {
         FirebaseVisionImage firebaseVisionImage = FirebaseVisionImage.fromMediaImage(image, ORIENTATIONS.get(90));
         FirebaseVisionTextRecognizer recognizer = FirebaseVision.getInstance()
                 .getOnDeviceTextRecognizer();
         recognizer.processImage(firebaseVisionImage)
                 .addOnSuccessListener(
-                        texts -> processTextRecognitionResult(texts));
+                        texts -> processTextRecognitionResult(texts, hit));
     }
 
     /**
      * Processes Firebase text detection results, POSTs them to the database, and create a node in the world
      * @param texts Firebase processing results
+     * @param hitResult HitResult from frame being processed
      */
-    private void processTextRecognitionResult(FirebaseVisionText texts) {
+    private void processTextRecognitionResult(FirebaseVisionText texts, HitResult hitResult) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
-        String s = "Default Text";
+        String s = null;
         for (int i = 0; i < blocks.size(); i++) {
             // Can't ge the confidence because we're not using cloud
             Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
             s = blocks.get(i).getText();
-            payload = new Payload(mLocation.getLatitude(), mLocation.getLongitude(), azimuth, s);
+
+
+            //calculate position of text
+
+            double distance = hitResult.getDistance() / 1000; //distance in km
+            float currAzimuth = (float)((azimuth + 90) * Math.PI / 180);
+
+            final double earthRadius = 6378.137;
+            double lat1 = ((mLocation.getLatitude() + 90) * Math.PI / 180);
+            double lon1 = ((mLocation.getLongitude() + 90) * Math.PI / 180);
+            double lat2 = (Math.asin( Math.sin(lat1)*Math.cos(distance/earthRadius) +
+                    Math.cos(lat1)*Math.sin(distance/earthRadius)*Math.cos(currAzimuth) ));
+            double lon2 = (lon1 + Math.atan2(Math.sin(currAzimuth)*Math.sin(distance/earthRadius)*Math.cos(lat1),
+                    Math.cos(distance/earthRadius)-Math.sin(lat1)*Math.sin(lat2)));
+
+            double latitude = (lat2 * 180 / Math.PI);
+            double longitude = (lon2 * 180 / Math.PI);
+
+            payload = new Payload(90 - latitude, -90 + longitude, currAzimuth, s);
             Log.d("Firebase", "Done processing!");
 
             new NetworkTask().execute(); // Upload the data to the database
             break;
 
-            /* Leave this in case we need it again!
+            /* NOTE: Leave this in case we need it again!
             List<FirebaseVisionText.Line> lines = blocks.get(i).getLines();
             for (int j = 0; j < lines.size(); j++) {
                 List<FirebaseVisionText.Element> elements = lines.get(j).getElements();
@@ -511,29 +551,41 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             }*/
         }
 
+        // Quit and notify if text wasn't found
+        if(s == null){
+            Log.w("Firebase", "Text not found!");
+            Toast.makeText(this, "No text found!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         // Build the word as a renderable
         ViewRenderable.builder()
                 .setView(this, createView(s))
                 .build()
-                .thenAccept(renderable -> addObjectToScene(renderable));
-
-        // Set the renderable in the scene
-        // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
-
+                .thenAccept(renderable -> addObjectToScene(renderable, hitResult));
     }
 
 
     /**
-     * Adds a model to the scene at the device's current position
+     * Adds a model to the scene
      * @param model model to render
+     * @param hit Hit result to mount model to
      */
-    private void addObjectToScene(Renderable model){
-        Node node = new Node();
-        node.setParent(arFragment.getArSceneView().getScene());
-        node.setRenderable(model);
-        Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        node.setWorldPosition(cameraPosition);
+    private void addObjectToScene(Renderable model, HitResult hit){
+
+        //create an anchor from the corresponding hit result and attach the word.
+        Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(hit.getHitPose());
+        AnchorNode anchorNode = new AnchorNode(anchor);
+        anchorNode.setRenderable(model);
+        anchorNode.setParent(arFragment.getArSceneView().getScene());
+
+        //Debug payload
+        Log.d("Models", "Adding model to scene from scan");
+        Log.d("Models", String.format("Camera world position: %s", arFragment.getArSceneView().getScene().getCamera().getWorldPosition().toString()));
+        Log.d("Models", String.format("Anchor isTracking: %s", String.valueOf(anchorNode.isTracking())));
+        Log.d("Models", String.format("Anchor pose: %s", anchorNode.getAnchor().getPose().toString()));
     }
+
 
     /**
      * Adds a model to the scene at the given latitude and longitude
@@ -542,18 +594,52 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * @param longitude
      */
     private void addObjectToScene(Renderable model, double latitude, double longitude, double bearing){
-        Node node = new Node();
-        node.setParent(arFragment.getArSceneView().getScene());
-        node.setRenderable(model);
+        //TODO: ADD BEARING INTO POSITION CALCULATION TO GET CORRECT ROTATION
         double cameraLatitude = mLocation.getLatitude();
         double cameraLongitude = mLocation.getLongitude();
-        Vector3 toObject = new Vector3((float)(latitude - cameraLatitude), (float)(longitude - cameraLongitude), 0);
-
+        Vector3 toObject = new Vector3((float)(cameraLatitude - latitude), 0, (float)(longitude - cameraLongitude));
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        node.setWorldPosition(Vector3.add(cameraPosition, toObject));
+        //Vector3 nodePosition = Vector3.add(cameraPosition, toObject.normalized().scaled((float) calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude)));
+        Vector3 nodePosition = toObject.normalized();
+        //attemptCalc(latitude, longitude, cameraLatitude, cameraLongitude, calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude));
+        //Vector3 nodePosition = Vector3.add(cameraPosition, toObject);
+
+        //Debug payload
+        Log.d("Models", "Adding model to scene based on lat/long");
+        Log.d("Models", "Camera world position: "  + cameraPosition.toString());
+        Log.d("Models", "Vector from camera to object: " + toObject.toString());
+        Log.d("Models", "Normalized cam -> obj vector: " + toObject.normalized().toString());
+        //Log.d("Models", String.format("Corrected cam -> obj vector: %s", nodePosition.toString()));
+
+        float[] translation = {nodePosition.x, nodePosition.y, nodePosition.z};
+        float[] rotation = {0, 0, 0, 0};
+
+        Pose pose = new Pose(translation, rotation);
+        Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(pose);
+        AnchorNode anchorNode = new AnchorNode(anchor);
+        anchorNode.setRenderable(model);
+        anchorNode.setParent(arFragment.getArSceneView().getScene());
+    }
+
+    public double calculateHaversine(double lat1, double long1, double lat2, double long2){
+        final double earthRadius = 6378.137;
+        double dLat = lat2 * Math.PI / 180 - lat1 * Math.PI / 180;
+        double dLong = long2 * Math.PI / 180 - long1 * Math.PI / 180;
+        double a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                        Math.sin(dLong/2) * Math.sin(dLong/2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        double d = earthRadius * c;
+        return d * 1000;
     }
 
 
+    public void attemptCalc(double lat1, double long1, double lat2, double long2, double distance){
+
+        double theta = Math.atan( (long1 - long2) / (lat1 - lat2));
+        Vector3 v = new Vector3( (float)(distance * Math.cos(theta)), (float)(distance* Math.sin(theta)), 0);
+        Log.d("Models", String.format("Attempted calc: %s", v.toString()));
+    }
     //*******************
     // NETWORK
     //*******************
@@ -604,21 +690,18 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         switch(progressCode) {
             // You can add UI behavior for progress updates here.
             case DownloadCallback.Progress.ERROR:
-
                 break;
             case DownloadCallback.Progress.CONNECT_SUCCESS:
-
                 break;
             case DownloadCallback.Progress.GET_INPUT_STREAM_SUCCESS:
                 break;
             case DownloadCallback.Progress.PROCESS_INPUT_STREAM_IN_PROGRESS:
                 break;
-
-      case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
-
+            case DownloadCallback.Progress.PROCESS_INPUT_STREAM_SUCCESS:
                 break;
         }
     }
+
     @Override
     public void finishDownloading() {
         downloading = false;
@@ -629,16 +712,17 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
     /**
      * Add a point to the database.
-     *     See https://github.com/webrtc/apprtc/issues/586 for details
-     * @param payload location to add
+     * @param payload Blob of information to deliver
      */
     void uploadData(Payload payload){
+        // get certs
         try {
             HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
         }
         catch (Exception e) {
-            Log.d("Flask", e.getMessage());
+            Log.e("Flask", "Error getting certs", e);
         }
+
         //For locally testing on Android
         //String ipv4Address = "10.0.2.2";
         //String portNumber = "8888";
@@ -649,10 +733,15 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         postRequest(postUrl, postBody);
     }
 
+    /**
+     * Recieve points from the Flask server
+     * @return Dictionary of objects received from the server
+     */
     JSONObject receiveData(){
         OkHttpClient preconfiguredClient = new OkHttpClient();
         OkHttpClient client = trustAllSslClient(preconfiguredClient);
         JSONObject json = null;
+
         Request request = new Request.Builder()
                 .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
                 .build();
@@ -661,33 +750,29 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
         }
         catch (Exception e) {
-            Log.d("Flask", e.getMessage());
+            Log.e("Flask", "Error getting certs", e);
         }
 
         try {
+            //parse the result
             Response response = client.newCall(request).execute();
             String result = response.body().string();
-            Log.d("Flask", result);
             json = new JSONObject(result);
+            Log.d("Flask", String.format("Fetch success! Objects: %s", json.length()));
         } catch (IOException e) {
-            e.printStackTrace();
+            Log.e("Flask", "Error reading response", e);
         } catch (JSONException e){
-
-        } finally {
+            Log.e("Flask", "Error creating JSON object", e);
+        } finally{
             return json;
         }
     }
 
-    private void placeNode(String s){
-        // Build the word as a renderable
-        ViewRenderable.builder()
-                .setView(this, createView(s))
-                .build()
-                .thenAccept(renderable -> addObjectToScene(renderable));
-        // Set the renderable in the scene
-        // TODO: CALCULATE POSITION SO THE RENDERABLE APPEARS IN FRONT OF THE CAMERA
-    }
-
+    /**
+     * Places node into the scene.
+     * @param json JSON dictionary of text items to be put into the scene. The application
+     *             keeps track of items it's currently showing to avoid showing duplicates.
+     */
     private void placeNodes(JSONObject json){
         Iterator<String> iterator = json.keys();
         String key;
@@ -696,21 +781,24 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         do{
             try {
                 key = iterator.next();
-                Log.d("Flask", "key:" + key);
-                payload = json.getJSONObject(key);
-                //skip proper placement for right now
+                if(pointsKey.has(key) == false) { //Don't add keys that already exist
+                    pointsKey.put(key, 0); //Add the record to the internal list
+                    Log.d("Flask", "key:" + key);
+                    payload = json.getJSONObject(key);
 
-                String text = payload.getString("text");
-                final double latitude = payload.getDouble("latitude");
-                final double longitude = payload.getDouble("longitude");
+                    String text = payload.getString("text");
+                    final double latitude = payload.getDouble("latitude");
+                    final double longitude = payload.getDouble("longitude");
+                    final double bearing = payload.getDouble("azimuth");
 
-                ViewRenderable.builder()
-                        .setView(this, createView(text))
-                        .build()
-                        .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, 0));
+                    ViewRenderable.builder()
+                            .setView(this, createView(text))
+                            .build()
+                            .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, bearing));
+                }
             }
             catch(JSONException e){
-                Log.d("Flask", "Hit an error!");
+                Log.e("Flask", "Error trying to parse node JSON", e);
             }
         }while(iterator.hasNext());
     }
@@ -797,7 +885,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
     };
 
-
+    /**
+     *
+     */
     private static final SSLContext trustAllSslContext;
     static {
         try {
@@ -818,16 +908,15 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Log.w("Network", "Using the trustAllSslClient is highly discouraged and should not be used in production!");
         OkHttpClient.Builder builder = client.newBuilder();
         builder.sslSocketFactory(trustAllSslSocketFactory, (X509TrustManager)trustAllCerts[0]);
-        builder.hostnameVerifier(new HostnameVerifier() {
-            @Override
-            public boolean verify(String hostname, SSLSession session) {
-                return true;
-            }
-        });
+        builder.hostnameVerifier((hostname, session) -> true);
         return builder.build();
     }
 
-
+    /**
+     *
+     * @param postUrl
+     * @param postBody
+     */
     void postRequest(String postUrl, RequestBody postBody) {
 
         OkHttpClient preconfiguredClient = new OkHttpClient();
@@ -852,44 +941,25 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
             @Override
             public void onResponse(Call call, final Response response) {
-                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
-                runOnUiThread(() -> Log.e("Network", "Request Successful!"));
+                try {
+                    // Get assigned key from response body
+                    final String message = response.body().string();
+
+                    // Add the assigned key to the database
+                    if(pointsKey.has(message) == false){
+                        pointsKey.put(message, 0);
+                    }
+
+                    // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
+                    runOnUiThread(() -> Log.d("Network", String.format("Posted object was assigned key: %s", message)));
+
+                } catch (IOException e){
+                    Log.e("Network", "Error reading response body", e);
+                } catch(JSONException e) {
+                    Log.e("Network", "Error adding assigned key to list", e);
+                }
             }
         });
-    }
-
-    String getRequest(String url) throws  IOException{
-        OkHttpClient preconfiguredClient = new OkHttpClient();
-        OkHttpClient client = trustAllSslClient(preconfiguredClient);
-        Request request = new Request.Builder()
-                .url(url)
-                .build();
-
-        try {client.newCall(request).enqueue(new Callback() {
-            @Override
-            public void onFailure(Call call, final IOException e) {
-                // Cancel the post on failure.
-                call.cancel();
-
-                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
-                runOnUiThread(() -> {
-                    Log.e("Network", "Request Failed", e);
-                });
-            }
-
-            @Override
-            public void onResponse(Call call, final Response response) throws IOException {
-                // In order to access the TextView inside the UI thread, the code is executed inside runOnUiThread()
-
-                runOnUiThread(() -> {
-
-                    try{text.append(response.body().string());}catch(IOException e){}
-                });
-                }
-        });} catch(Exception e){
-
-        }
-        return "";
     }
 
     //*******************
@@ -939,7 +1009,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             textureView.setSurfaceTextureListener(textureListener);
         }
     }
-
 
     @Override
     protected void onPause() {

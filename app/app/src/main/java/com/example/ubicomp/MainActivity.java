@@ -39,6 +39,7 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -65,6 +66,8 @@ import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.sceneform.AnchorNode;
+import com.google.ar.sceneform.HitTestResult;
+import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
@@ -104,7 +107,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-public class MainActivity extends FragmentActivity implements DownloadCallback<String> {//extends AppCompatActivity {
+public class MainActivity extends FragmentActivity implements DownloadCallback<String> {
 
     /**
     * Internal Class to bundle location and text information.
@@ -156,6 +159,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         ORIENTATIONS.append(Surface.ROTATION_180, 270);
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
+
+    private enum NODE_TYPE {RECEIVED, CREATE}
 
     //Camera properties
     private String cameraId;
@@ -433,14 +438,23 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
     // Create View for ArCore renderables
-    private View createView(String s){
+    private View createView(String s, NODE_TYPE type){
         TextView view = new TextView(this);
         view.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         view.setGravity(1);
         view.setText(s);
         view.setPadding(6, 6, 6, 6);
         view.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
-        view.setBackgroundColor(Color.MAGENTA);
+        if(type == NODE_TYPE.CREATE) {
+            view.setBackgroundColor(Color.MAGENTA);
+        }
+        else if(type == NODE_TYPE.RECEIVED){
+            view.setBackgroundColor(Color.BLUE);
+        }
+        else{
+            Log.wtf("Models", "Unknown model type");
+            view.setBackgroundColor(Color.BLACK);
+        }
         view.setTextColor(Color.WHITE);
         return view;
     }
@@ -511,12 +525,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      */
     private void processTextRecognitionResult(FirebaseVisionText texts, HitResult hitResult) {
         List<FirebaseVisionText.TextBlock> blocks = texts.getTextBlocks();
-        String s = null;
+        String blockText = null;
         for (int i = 0; i < blocks.size(); i++) {
             // Can't ge the confidence because we're not using cloud
             Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
-            s = blocks.get(i).getText();
+            blockText = blocks.get(i).getText();
 
 
             //calculate position of text
@@ -535,7 +549,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             double latitude = (lat2 * 180 / Math.PI);
             double longitude = (lon2 * 180 / Math.PI);
 
-            payload = new Payload(90 - latitude, -90 + longitude, currAzimuth, s);
+            payload = new Payload(90 - latitude, -90 + longitude, currAzimuth, blockText);
             Log.d("Firebase", "Done processing!");
 
             new NetworkTask().execute(); // Upload the data to the database
@@ -552,7 +566,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
 
         // Quit and notify if text wasn't found
-        if(s == null){
+        if(blockText == null){
             Log.w("Firebase", "Text not found!");
             Toast.makeText(this, "No text found!", Toast.LENGTH_SHORT).show();
             return;
@@ -560,7 +574,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
         // Build the word as a renderable
         ViewRenderable.builder()
-                .setView(this, createView(s))
+                .setView(this, createView(blockText, NODE_TYPE.CREATE))
                 .build()
                 .thenAccept(renderable -> addObjectToScene(renderable, hitResult));
     }
@@ -578,6 +592,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
+        anchorNode.setOnTouchListener(new Node.OnTouchListener() {
+            @Override
+            public boolean onTouch(HitTestResult hitTestResult, MotionEvent motionEvent) {
+                hitTestResult.getNode().setEnabled(false);
+                return true;
+            }
+        });
 
         //Debug payload
         Log.d("Models", "Adding model to scene from scan");
@@ -619,6 +640,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
+        anchorNode.setOnTouchListener(new Node.OnTouchListener() {
+            @Override
+            public boolean onTouch(HitTestResult hitTestResult, MotionEvent motionEvent) {
+                hitTestResult.getNode().setEnabled(false);
+                return true;
+            }
+        });
     }
 
     public double calculateHaversine(double lat1, double long1, double lat2, double long2){
@@ -670,11 +698,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
     @Override
     public void updateFromDownload(String result) {
-        // TODO fill this in with a UI  update based on the result of the webpage.
 
-        // Update your UI here based on result of download.
-        Log.d("UrlResult", "SUCCESS");
-        Log.d("UrlResult", result);
     }
 
     @Override
@@ -715,13 +739,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * @param payload Blob of information to deliver
      */
     void uploadData(Payload payload){
-        // get certs
-        try {
-            HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
-        }
-        catch (Exception e) {
-            Log.e("Flask", "Error getting certs", e);
-        }
 
         //For locally testing on Android
         //String ipv4Address = "10.0.2.2";
@@ -745,13 +762,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Request request = new Request.Builder()
                 .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
                 .build();
-
-        try {
-            HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
-        }
-        catch (Exception e) {
-            Log.e("Flask", "Error getting certs", e);
-        }
 
         try {
             //parse the result
@@ -792,7 +802,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     final double bearing = payload.getDouble("azimuth");
 
                     ViewRenderable.builder()
-                            .setView(this, createView(text))
+                            .setView(this, createView(text, NODE_TYPE.RECEIVED))
                             .build()
                             .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, bearing));
                 }

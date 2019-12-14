@@ -39,6 +39,7 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -65,6 +66,8 @@ import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.sceneform.AnchorNode;
+import com.google.ar.sceneform.HitTestResult;
+import com.google.ar.sceneform.Node;
 import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
@@ -104,7 +107,7 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-public class MainActivity extends FragmentActivity implements DownloadCallback<String> {//extends AppCompatActivity {
+public class MainActivity extends FragmentActivity implements DownloadCallback<String> {
 
     /**
     * Internal Class to bundle location and text information.
@@ -589,6 +592,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
+        anchorNode.setOnTouchListener(new Node.OnTouchListener() {
+            @Override
+            public boolean onTouch(HitTestResult hitTestResult, MotionEvent motionEvent) {
+                hitTestResult.getNode().setEnabled(false);
+                return true;
+            }
+        });
 
         //Debug payload
         Log.d("Models", "Adding model to scene from scan");
@@ -630,6 +640,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
+        anchorNode.setOnTouchListener(new Node.OnTouchListener() {
+            @Override
+            public boolean onTouch(HitTestResult hitTestResult, MotionEvent motionEvent) {
+                hitTestResult.getNode().setEnabled(false);
+                return true;
+            }
+        });
     }
 
     public double calculateHaversine(double lat1, double long1, double lat2, double long2){
@@ -681,11 +698,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
     @Override
     public void updateFromDownload(String result) {
-        // TODO fill this in with a UI  update based on the result of the webpage.
 
-        // Update your UI here based on result of download.
-        Log.d("UrlResult", "SUCCESS");
-        Log.d("UrlResult", result);
     }
 
     @Override
@@ -726,13 +739,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * @param payload Blob of information to deliver
      */
     void uploadData(Payload payload){
-        // get certs
-        try {
-            HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
-        }
-        catch (Exception e) {
-            Log.e("Flask", "Error getting certs", e);
-        }
 
         //For locally testing on Android
         //String ipv4Address = "10.0.2.2";
@@ -756,13 +762,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Request request = new Request.Builder()
                 .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
                 .build();
-
-        try {
-            HttpsURLConnection.setDefaultSSLSocketFactory(trustCert().getSocketFactory());
-        }
-        catch (Exception e) {
-            Log.e("Flask", "Error getting certs", e);
-        }
 
         try {
             //parse the result

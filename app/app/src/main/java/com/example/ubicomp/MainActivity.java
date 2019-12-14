@@ -517,7 +517,25 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             Log.d("Firebase", "word! " + blocks.get(i).getText());
             text.append("\n" + blocks.get(i).getText());
             s = blocks.get(i).getText();
-            payload = new Payload(mLocation.getLatitude(), mLocation.getLongitude(), azimuth, s);
+
+
+            //calculate position of text
+
+            double distance = hitResult.getDistance() / 1000; //distance in km
+            float currAzimuth = (float)((azimuth + 90) * Math.PI / 180);
+
+            final double earthRadius = 6378.137;
+            double lat1 = ((mLocation.getLatitude() + 90) * Math.PI / 180);
+            double lon1 = ((mLocation.getLongitude() + 90) * Math.PI / 180);
+            double lat2 = (Math.asin( Math.sin(lat1)*Math.cos(distance/earthRadius) +
+                    Math.cos(lat1)*Math.sin(distance/earthRadius)*Math.cos(currAzimuth) ));
+            double lon2 = (lon1 + Math.atan2(Math.sin(currAzimuth)*Math.sin(distance/earthRadius)*Math.cos(lat1),
+                    Math.cos(distance/earthRadius)-Math.sin(lat1)*Math.sin(lat2)));
+
+            double latitude = (lat2 * 180 / Math.PI);
+            double longitude = (lon2 * 180 / Math.PI);
+
+            payload = new Payload(90 - latitude, -90 + longitude, currAzimuth, s);
             Log.d("Firebase", "Done processing!");
 
             new NetworkTask().execute(); // Upload the data to the database
@@ -576,19 +594,22 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * @param longitude
      */
     private void addObjectToScene(Renderable model, double latitude, double longitude, double bearing){
-        //TODO: ADD BEARING INTO POSITION CALCULATION
+        //TODO: ADD BEARING INTO POSITION CALCULATION TO GET CORRECT ROTATION
         double cameraLatitude = mLocation.getLatitude();
         double cameraLongitude = mLocation.getLongitude();
-        Vector3 toObject = new Vector3((float)(latitude - cameraLatitude), (float)(longitude - cameraLongitude), 0);
+        Vector3 toObject = new Vector3((float)(cameraLatitude - latitude), 0, (float)(longitude - cameraLongitude));
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        Vector3 nodePosition = toObject.normalized().scaled((float) calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude));
+        //Vector3 nodePosition = Vector3.add(cameraPosition, toObject.normalized().scaled((float) calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude)));
+        Vector3 nodePosition = toObject.normalized();
+        //attemptCalc(latitude, longitude, cameraLatitude, cameraLongitude, calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude));
+        //Vector3 nodePosition = Vector3.add(cameraPosition, toObject);
 
         //Debug payload
         Log.d("Models", "Adding model to scene based on lat/long");
         Log.d("Models", "Camera world position: "  + cameraPosition.toString());
         Log.d("Models", "Vector from camera to object: " + toObject.toString());
         Log.d("Models", "Normalized cam -> obj vector: " + toObject.normalized().toString());
-        Log.d("Models", String.format("Corrected cam -> obj vector: %s", nodePosition.toString()));
+        //Log.d("Models", String.format("Corrected cam -> obj vector: %s", nodePosition.toString()));
 
         float[] translation = {nodePosition.x, nodePosition.y, nodePosition.z};
         float[] rotation = {0, 0, 0, 0};
@@ -612,6 +633,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         return d * 1000;
     }
 
+
+    public void attemptCalc(double lat1, double long1, double lat2, double long2, double distance){
+
+        double theta = Math.atan( (long1 - long2) / (lat1 - lat2));
+        Vector3 v = new Vector3( (float)(distance * Math.cos(theta)), (float)(distance* Math.sin(theta)), 0);
+        Log.d("Models", String.format("Attempted calc: %s", v.toString()));
+    }
     //*******************
     // NETWORK
     //*******************
@@ -730,11 +758,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             Response response = client.newCall(request).execute();
             String result = response.body().string();
             json = new JSONObject(result);
+            Log.d("Flask", String.format("Fetch success! Objects: %s", json.length()));
         } catch (IOException e) {
             Log.e("Flask", "Error reading response", e);
         } catch (JSONException e){
             Log.e("Flask", "Error creating JSON object", e);
-        } finally {
+        } finally{
             return json;
         }
     }
@@ -760,7 +789,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     String text = payload.getString("text");
                     final double latitude = payload.getDouble("latitude");
                     final double longitude = payload.getDouble("longitude");
-                    final double bearing = payload.getDouble("bearing");
+                    final double bearing = payload.getDouble("azimuth");
 
                     ViewRenderable.builder()
                             .setView(this, createView(text))

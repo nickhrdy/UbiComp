@@ -86,6 +86,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -120,7 +121,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         float azimuth;
         String text;
 
-
+        /**
+         * This is the constructor fo the private class PayLoad
+         * @param latitude
+         * @param longitude
+         * @param azimuth
+         * @param text
+         */
         public Payload(double latitude, double longitude, float azimuth, String text){
             this.latitude = latitude;
             this.longitude = longitude;
@@ -202,6 +209,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
     //Ar core
     private ArFragment arFragment;
+    private ArrayList<Anchor> anchorList = new ArrayList<Anchor>();
     private ViewRenderable viewRenderable;
 
     @Override
@@ -589,6 +597,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
         //create an anchor from the corresponding hit result and attach the word.
         Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(hit.getHitPose());
+        anchorList.add(anchor);
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
@@ -607,6 +616,38 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Log.d("Models", String.format("Anchor pose: %s", anchorNode.getAnchor().getPose().toString()));
     }
 
+    /**
+     * This method helps separate anchor points so renderable boxes are not placed on top of each other.
+     */
+//    public Anchor nudgeAnchor(Anchor anchor) {
+//
+//        // find anchors close to each other
+//        for(int i = 0; i < anchorList.size(); i++){
+//            // give tolerance to translation
+//            if(!(anchor.getCloudAnchorId().equals(anchorList.get(i))) && (anchor.getPose() anchorList.get(i)) {
+//                // do some moving of anchor -- specifically the anchor we are about to place
+//                Vector3 blah = new Vector3(anchor.getPose().tx(), anchor.getPose().ty(), anchor.getPose().tz());
+//                Log.d("Pre-Blah scale vector", blah.toString());
+//                blah.scaled((float) 1.2);
+//                Log.d("Post-Blah scale vector", blah.toString());
+//
+//                float[] temp = {blah.x, blah.y, blah.z};
+//                float[] tempTwo = {0,0,0,0};
+//
+//                Anchor newAnchor = arFragment.getArSceneView().getSession().createAnchor(new Pose(temp, tempTwo));
+//
+//                // make sure all resources are closed
+//                anchorList.remove(anchor);
+//                anchorList.add(newAnchor);
+//
+//                return newAnchor;
+//            } else {
+//                //skip
+//            }
+//        }
+//
+//        return anchor;
+//    }
 
     /**
      * Adds a model to the scene at the given latitude and longitude
@@ -637,6 +678,11 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
         Pose pose = new Pose(translation, rotation);
         Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(pose);
+        anchorList.add(anchor);
+
+        //check for other anchor points in the same 3D area
+//        anchor = nudgeAnchor(anchor);
+
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
@@ -805,6 +851,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                             .setView(this, createView(text, NODE_TYPE.RECEIVED))
                             .build()
                             .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, bearing));
+
                 }
             }
             catch(JSONException e){

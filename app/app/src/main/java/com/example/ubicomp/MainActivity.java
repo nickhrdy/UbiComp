@@ -61,6 +61,7 @@ import com.google.ar.core.Frame;
 import com.google.ar.core.HitResult;
 import com.google.ar.core.Pose;
 import com.google.ar.core.Session;
+import com.google.ar.core.exceptions.NotTrackingException;
 import com.google.ar.core.exceptions.NotYetAvailableException;
 import com.google.ar.core.exceptions.UnavailableApkTooOldException;
 import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
@@ -161,17 +162,17 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      * Private class to bundle nodes and locations together
      */
     private class NodeBundle {
-        Node node;
+        AnchorNode node;
         double latitude;
         double longitude;
 
-        public NodeBundle(Node node, double latitude, double longitude){
+        public NodeBundle(AnchorNode node, double latitude, double longitude){
             this.node = node;
             this.latitude = latitude;
             this.longitude = longitude;
         }
 
-        public Node getNode() {
+        public AnchorNode getNode() {
             return node;
         }
 
@@ -287,7 +288,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                 for (NodeBundle n: nodeList) {
 
                     //get distance between nodes
-                    Node node = n.getNode();
+                    AnchorNode node = n.getNode();
+
+
                     float[] results = {-1,-1,-1};
                     Location.distanceBetween(mLocation.getLatitude(), mLocation.getLongitude(), n.getLatitude(), n.getLongitude(), results);
                     float bearing = results[1];
@@ -298,11 +301,28 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     Vector3 newOffset = new Vector3((float)Math.cos(bearing) * scaledDistance, (float)(cameraPosition.y - 0.5), (float)Math.sin(bearing) * scaledDistance);
 
                     //set node position and rotation
-                    node.setWorldPosition(Vector3.add(newOffset, cameraPosition));
-                    Vector3 cardPosition = node.getWorldPosition();
-                    Vector3 direction = Vector3.subtract(cameraPosition, cardPosition);
+                    Vector3 finalPosition = Vector3.add(newOffset, cameraPosition);
+                    Vector3 direction = Vector3.subtract(cameraPosition, finalPosition);
                     Quaternion lookRotation = Quaternion.lookRotation(direction, Vector3.up());
-                    node.setWorldRotation(lookRotation);
+
+                    //create new anchor and attach node to it
+                    float[] translation = {finalPosition.x, finalPosition.y, finalPosition.z};
+                    float[] rotation = {lookRotation.x, lookRotation.y, lookRotation.z, lookRotation.w};
+                    Pose pose = new Pose(translation, rotation);
+
+                    try {
+                        Anchor newAnchor = arFragment.getArSceneView().getSession().createAnchor(pose);
+                        node.setAnchor(newAnchor);
+
+                        if (node.getAnchor() != null) {
+                            node.getAnchor().detach();
+                        }
+                    }
+                    catch(NotTrackingException e){
+                        Log.e("Tracking", "NOT TRACKING", e);
+                    }
+
+                    //set scale based on how far away it is
                     node.setWorldScale(new Vector3((float)Math.max(0.5, 1 - scaledDistance), 1, (float)Math.max(0.5, 1 - scaledDistance)));
 
                     //change color based on distance to current location
@@ -314,11 +334,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     else {
                         v.setBackgroundColor(Color.BLUE);
                     }
-
                 }
             }
         });
-
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -663,8 +681,22 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      */
     private void addObjectToScene(Renderable model, HitResult hit){
 
+
+        //set node position and rotation
+        Pose p = hit.getHitPose();
+
+
         //create an anchor from the corresponding hit result and attach the word.
-        Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(hit.getHitPose());
+
+
+        Vector3 direction = Vector3.subtract(arFragment.getArSceneView().getScene().getCamera().getWorldPosition(), new Vector3(hit.getHitPose().tx(), hit.getHitPose().ty(), hit.getHitPose().tz() ));
+        Quaternion lookRotation = Quaternion.lookRotation(direction, Vector3.up());
+
+        float[] translation = {p.tx(), p.ty(), p.tz()};
+        float[] rotation = {lookRotation.x, lookRotation.y, lookRotation.z, lookRotation.w};
+
+        p = new Pose(translation, rotation);
+        Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(p);
         anchorList.add(anchor);
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);

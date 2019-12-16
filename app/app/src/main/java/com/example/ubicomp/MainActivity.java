@@ -303,7 +303,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     Vector3 direction = Vector3.subtract(cameraPosition, cardPosition);
                     Quaternion lookRotation = Quaternion.lookRotation(direction, Vector3.up());
                     node.setWorldRotation(lookRotation);
-                    node.setWorldScale(new Vector3(1 - scaledDistance, 1, 1 - scaledDistance));
+                    node.setWorldScale(new Vector3((float)Math.max(0.5, 1 - scaledDistance), 1, (float)Math.max(0.5, 1 - scaledDistance)));
 
                     //change color based on distance to current location
                     ViewRenderable vr = (ViewRenderable) node.getRenderable();

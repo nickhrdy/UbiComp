@@ -2,6 +2,7 @@ package com.example.ubicomp;
 
 import org.json.*;
 import android.Manifest;
+import android.app.Application;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
@@ -66,8 +67,12 @@ import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException;
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException;
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException;
 import com.google.ar.sceneform.AnchorNode;
+import com.google.ar.sceneform.ArSceneView;
+import com.google.ar.sceneform.FrameTime;
 import com.google.ar.sceneform.HitTestResult;
 import com.google.ar.sceneform.Node;
+import com.google.ar.sceneform.Scene;
+import com.google.ar.sceneform.math.Quaternion;
 import com.google.ar.sceneform.math.Vector3;
 import com.google.ar.sceneform.rendering.Renderable;
 import com.google.ar.sceneform.rendering.ViewRenderable;
@@ -152,6 +157,33 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         }
     }
 
+    /**
+     * Private class to bundle nodes and locations together
+     */
+    private class NodeBundle {
+        Node node;
+        double latitude;
+        double longitude;
+
+        public NodeBundle(Node node, double latitude, double longitude){
+            this.node = node;
+            this.latitude = latitude;
+            this.longitude = longitude;
+        }
+
+        public Node getNode() {
+            return node;
+        }
+
+        public double getLatitude() {
+            return latitude;
+        }
+
+        public double getLongitude() {
+            return longitude;
+        }
+    }
+
     // View Objects
     Button button, button2;
     TextureView textureView;
@@ -209,8 +241,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
     //Ar core
     private ArFragment arFragment;
-    private ArrayList<Anchor> anchorList = new ArrayList<Anchor>();
-    private ViewRenderable viewRenderable;
+    private ArrayList<Anchor> anchorList = new ArrayList<>();
+    private ArrayList<NodeBundle> nodeList = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -249,8 +281,44 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             e.printStackTrace();
         }
 
-        float[] translation = {0,0,0};
-        float[] rotation = {0,0,0,0};
+        arFragment.getArSceneView().getScene().addOnUpdateListener(new Scene.OnUpdateListener() {
+            @Override
+            public void onUpdate(FrameTime frameTime) {
+                for (NodeBundle n: nodeList) {
+
+                    //get distance between nodes
+                    Node node = n.getNode();
+                    float[] results = {-1,-1,-1};
+                    Location.distanceBetween(mLocation.getLatitude(), mLocation.getLongitude(), n.getLatitude(), n.getLongitude(), results);
+                    float bearing = results[1];
+                    float scaledDistance = (results[0] / 10);
+
+                    //calculate relative position of node to camera
+                    Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
+                    Vector3 newOffset = new Vector3((float)Math.cos(bearing) * scaledDistance, (float)(cameraPosition.y - 0.5), (float)Math.sin(bearing) * scaledDistance);
+
+                    //set node position and rotation
+                    node.setWorldPosition(Vector3.add(newOffset, cameraPosition));
+                    Vector3 cardPosition = node.getWorldPosition();
+                    Vector3 direction = Vector3.subtract(cameraPosition, cardPosition);
+                    Quaternion lookRotation = Quaternion.lookRotation(direction, Vector3.up());
+                    node.setWorldRotation(lookRotation);
+                    node.setWorldScale(new Vector3(1 - scaledDistance, 1, 1 - scaledDistance));
+
+                    //change color based on distance to current location
+                    ViewRenderable vr = (ViewRenderable) node.getRenderable();
+                    View v = vr.getView();
+                    if(results[0] < 15) {
+                        v.setBackgroundColor(Color.GREEN);
+                    }
+                    else {
+                        v.setBackgroundColor(Color.BLUE);
+                    }
+
+                }
+            }
+        });
+
 
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
 
@@ -683,7 +751,10 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         //check for other anchor points in the same 3D area
 //        anchor = nudgeAnchor(anchor);
 
-        AnchorNode anchorNode = new AnchorNode(anchor);
+        //AnchorNode anchorNode = new AnchorNode(anchor);
+        AnchorNode anchorNode = new AnchorNode();
+
+        nodeList.add(new NodeBundle(anchorNode, latitude, longitude));
         anchorNode.setRenderable(model);
         anchorNode.setParent(arFragment.getArSceneView().getScene());
         anchorNode.setOnTouchListener(new Node.OnTouchListener() {

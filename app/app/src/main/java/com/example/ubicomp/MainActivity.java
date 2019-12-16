@@ -97,10 +97,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
@@ -186,7 +183,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
     // View Objects
-    Button button, button2;
+    Button button, receiveButton;
     TextureView textureView;
     TextView text;
 
@@ -210,6 +207,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private Size imageDimensions;
     Handler mBackgroundHandler;
     HandlerThread mBackgroundThread;
+    private double fetchTimeSeconds = 5;
 
     private Payload payload; //TODO: SEE IF WE CAN CHANGE CONTROL FLOW SO WE DON'T HAVE THIS GLOBAL
 
@@ -252,7 +250,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         pointsKey = new JSONObject();
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
-        button2 = findViewById(R.id.button2);
+//        receiveButton = findViewById(R.id.receiveButton);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
@@ -388,7 +386,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         };
 
         button.setOnClickListener(v -> takePicture() );
-        button2.setOnClickListener(v -> new NetworkReceieveTask().execute());
+        (new NetworkReceieveTask()).execute();
     }
 
 
@@ -836,7 +834,15 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private class NetworkReceieveTask extends AsyncTask<URL, Integer, JSONObject> {
         @Override
         protected JSONObject doInBackground(URL... urls){
-            return receiveData();
+            JSONObject results = receiveData();
+            try {
+                Thread.sleep((long)(1000 * fetchTimeSeconds));
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            NetworkReceieveTask task2 = new NetworkReceieveTask();
+            task2.execute();
+            return results;
         }
 
         @Override
@@ -844,6 +850,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             placeNodes(json);
         }
     }
+
+    private final static int INTERVAL = 1000 * 60 * 2; //2 minutes
+
 
     @Override
     public void updateFromDownload(String result) {
@@ -900,31 +909,33 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
     /**
-     * Recieve points from the Flask server
+     * Receive points from the Flask server
      * @return Dictionary of objects received from the server
      */
     JSONObject receiveData(){
         OkHttpClient preconfiguredClient = new OkHttpClient();
         OkHttpClient client = trustAllSslClient(preconfiguredClient);
         JSONObject json = null;
+        if (mLocation != null) {
+            Request request = new Request.Builder()
+                    .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
+                    .build();
 
-        Request request = new Request.Builder()
-                .url(String.format("http://35.245.208.104/api/nearme?latitude=%s&longitude=%s", String.valueOf(mLocation.getLatitude()), String.valueOf(mLocation.getLongitude())))
-                .build();
-
-        try {
-            //parse the result
-            Response response = client.newCall(request).execute();
-            String result = response.body().string();
-            json = new JSONObject(result);
-            Log.d("Flask", String.format("Fetch success! Objects: %s", json.length()));
-        } catch (IOException e) {
-            Log.e("Flask", "Error reading response", e);
-        } catch (JSONException e){
-            Log.e("Flask", "Error creating JSON object", e);
-        } finally{
-            return json;
+            try {
+                //parse the result
+                Response response = client.newCall(request).execute();
+                String result = response.body().string();
+                json = new JSONObject(result);
+                Log.d("Flask", String.format("Fetch success! Objects: %s", json.length()));
+            } catch (IOException e) {
+                Log.e("Flask", "Error reading response", e);
+            } catch (JSONException e) {
+                Log.e("Flask", "Error creating JSON object", e);
+            } finally {
+                return json;
+            }
         }
+        return null;
     }
 
     /**
@@ -933,10 +944,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      *             keeps track of items it's currently showing to avoid showing duplicates.
      */
     private void placeNodes(JSONObject json){
+        if (json == null) {
+            Log.d("Flask", "No results to return yet!!!");
+            return;
+        }
         Iterator<String> iterator = json.keys();
         String key;
         JSONObject payload;
-
         do{
             try {
                 key = iterator.next();
@@ -949,7 +963,10 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     final double latitude = payload.getDouble("latitude");
                     final double longitude = payload.getDouble("longitude");
                     final double bearing = payload.getDouble("azimuth");
-
+                    StringBuilder sb = (new StringBuilder()).append("latitude: ").append(latitude)
+                            .append(" logitude: ").append(longitude)
+                            .append(" azimuth: ").append(azimuth);
+                    Log.d("PlaceNodes", sb.toString());
                     ViewRenderable.builder()
                             .setView(this, createView(text, NODE_TYPE.RECEIVED))
                             .build()

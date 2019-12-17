@@ -3,7 +3,10 @@ package com.example.ubicomp;
 import org.json.*;
 import android.Manifest;
 import android.app.Application;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Color;
@@ -26,6 +29,9 @@ import android.location.Location;
 import android.media.Image;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiManager;
+import android.net.wifi.rtt.WifiRttManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
 
@@ -243,6 +249,10 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     private ArrayList<Anchor> anchorList = new ArrayList<>();
     private ArrayList<NodeBundle> nodeList = new ArrayList<>();
 
+
+    private WifiManager wifiManager;
+    private BroadcastReceiver wifiScanReceiver;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -340,6 +350,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
         mLocationRequest = new LocationRequest();
         mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        mLocationRequest.setInterval(10000);
+        mLocationRequest.setFastestInterval(5000);
         mLocationCallback = new LocationCallback(){
           @Override
           public void onLocationResult(LocationResult locationResult) {
@@ -385,8 +397,36 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             }
         };
 
+
+
         button.setOnClickListener(v -> takePicture() );
         (new NetworkReceieveTask()).execute();
+
+
+
+
+    }
+
+
+    private void Scan(){
+
+    }
+
+
+
+
+    private void scanSuccess() {
+        List<ScanResult> results = wifiManager.getScanResults();
+        for(ScanResult s:results){
+        Log.d("Faff", String.format("%s: %s", s.SSID, String.valueOf(s.is80211mcResponder())));
+    }
+    }
+
+    private void scanFailure() {
+        // handle failure: new scan did NOT succeed
+        // consider using old scan results: these are the OLD results!
+        List<ScanResult> results = wifiManager.getScanResults();
+
     }
 
 
@@ -519,13 +559,40 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
-                //ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.CHANGE_WIFI_STATE) != PackageManager.PERMISSION_GRANTED ||
                 ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
-            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA /*, Manifest.permission.ACCESS_COARSE_LOCATION*/, Manifest.permission.ACCESS_FINE_LOCATION}, 101);
+            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.CHANGE_WIFI_STATE}, 101);
             return;
         }
         configureTransform(width, height);
         manager.openCamera(cameraId, stateCallback, null);
+
+        wifiManager = (WifiManager)
+                getSystemService(Context.WIFI_SERVICE);
+
+        wifiScanReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context c, Intent intent) {
+                boolean success = intent.getBooleanExtra(
+                        WifiManager.EXTRA_RESULTS_UPDATED, false);
+                if (success) {
+                    scanSuccess();
+                } else {
+                    // scan failure handling
+                    scanFailure();
+                }
+            }
+        };
+
+        IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+        registerReceiver(wifiScanReceiver, intentFilter);
+
+        boolean success = wifiManager.startScan();
+        if (!success) {
+            // scan failure handling
+            scanFailure();
+        }
 
     }
 
@@ -1103,6 +1170,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                 .url(postUrl)
                 .post(postBody)
                 .build();
+
 
         client.newCall(request).enqueue(new Callback() {
             @Override

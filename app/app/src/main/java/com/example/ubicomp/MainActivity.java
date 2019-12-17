@@ -144,7 +144,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                 JSONObject obj = new JSONObject();
                 obj.put("latitude", String.valueOf(latitude));
                 obj.put("longitude", String.valueOf(longitude));
-                obj.put("azimuth", String.valueOf((azimuth)));
+                obj.put("azimuth", String.valueOf(azimuth));
                 obj.put("text", text);
                 return obj;
             }
@@ -183,7 +183,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     }
 
     // View Objects
-    Button button, receiveButton;
+    Button button;
     TextureView textureView;
     TextView text;
 
@@ -251,12 +251,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         pointsKey = new JSONObject();
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
-        //receiveButton = findViewById(R.id.receiveButton);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
-        //arFragment.getPlaneDiscoveryController().hide();
-        //arFragment.getPlaneDiscoveryController().setInstructionView(null);
         arFragment.getArSceneView().getPlaneRenderer().setEnabled(true);
 
         // set-up session so the camera auto-focuses
@@ -321,9 +318,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     catch(NotTrackingException e){
                         Log.e("Tracking", "NOT TRACKING");
                     }
-
-                    //set scale based on how far away it is
-                    //node.setWorldScale(new Vector3((float)Math.max(0.5, 1 - scaledDistance), 1, (float)Math.max(0.5, 1 - scaledDistance)));
 
                     //change color based on distance to current location
                     ViewRenderable vr = (ViewRenderable) node.getRenderable();
@@ -551,9 +545,8 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         return view;
     }
 
-
+    // Starts processing workflow
     private void takePicture() {
-
         Image image;
         List<HitResult> hits;
         HitResult hit;
@@ -590,7 +583,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                 Toast.makeText(getApplicationContext(), "I need dat camera doe...", Toast.LENGTH_LONG).show();
             }
         }
-
     }
 
     //*******************
@@ -624,9 +616,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
             text.append("\n" + blocks.get(i).getText());
             blockText = blocks.get(i).getText();
 
-
             //calculate position of text
-
             double distance = hitResult.getDistance() / 1000; //distance in km
             float currAzimuth = (float)((azimuth + 90) * Math.PI / 180);
 
@@ -679,22 +669,18 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      */
     private void addObjectToScene(Renderable model, HitResult hit){
 
-
         //set node position and rotation
-        Pose p = hit.getHitPose();
-
+        Pose pose = hit.getHitPose();
 
         //create an anchor from the corresponding hit result and attach the word.
-
-
         Vector3 direction = Vector3.subtract(arFragment.getArSceneView().getScene().getCamera().getWorldPosition(), new Vector3(hit.getHitPose().tx(), hit.getHitPose().ty(), hit.getHitPose().tz() ));
         Quaternion lookRotation = Quaternion.lookRotation(direction, Vector3.up());
 
-        float[] translation = {p.tx(), p.ty(), p.tz()};
+        float[] translation = {pose.tx(), pose.ty(), pose.tz()};
         float[] rotation = {lookRotation.x, lookRotation.y, lookRotation.z, lookRotation.w};
 
-        p = new Pose(translation, rotation);
-        Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(p);
+        pose = new Pose(translation, rotation);
+        Anchor anchor = arFragment.getArSceneView().getSession().createAnchor(pose);
         anchorList.add(anchor);
         AnchorNode anchorNode = new AnchorNode(anchor);
         anchorNode.setRenderable(model);
@@ -714,38 +700,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         Log.d("Models", String.format("Anchor pose: %s", anchorNode.getAnchor().getPose().toString()));
     }
 
-    /**
-     * This method helps separate anchor points so renderable boxes are not placed on top of each other.
-     */
-//    public Anchor nudgeAnchor(Anchor anchor) {
-//
-//        // find anchors close to each other
-//        for(int i = 0; i < anchorList.size(); i++){
-//            // give tolerance to translation
-//            if(!(anchor.getCloudAnchorId().equals(anchorList.get(i))) && (anchor.getPose() anchorList.get(i)) {
-//                // do some moving of anchor -- specifically the anchor we are about to place
-//                Vector3 blah = new Vector3(anchor.getPose().tx(), anchor.getPose().ty(), anchor.getPose().tz());
-//                Log.d("Pre-Blah scale vector", blah.toString());
-//                blah.scaled((float) 1.2);
-//                Log.d("Post-Blah scale vector", blah.toString());
-//
-//                float[] temp = {blah.x, blah.y, blah.z};
-//                float[] tempTwo = {0,0,0,0};
-//
-//                Anchor newAnchor = arFragment.getArSceneView().getSession().createAnchor(new Pose(temp, tempTwo));
-//
-//                // make sure all resources are closed
-//                anchorList.remove(anchor);
-//                anchorList.add(newAnchor);
-//
-//                return newAnchor;
-//            } else {
-//                //skip
-//            }
-//        }
-//
-//        return anchor;
-//    }
 
     /**
      * Adds a model to the scene at the given latitude and longitude
@@ -759,17 +713,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         double cameraLongitude = mLocation.getLongitude();
         Vector3 toObject = new Vector3((float)(cameraLatitude - latitude), 0, (float)(longitude - cameraLongitude));
         Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-        //Vector3 nodePosition = Vector3.add(cameraPosition, toObject.normalized().scaled((float) calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude)));
         Vector3 nodePosition = toObject.normalized();
-        //attemptCalc(latitude, longitude, cameraLatitude, cameraLongitude, calculateHaversine(latitude, longitude, cameraLatitude, cameraLongitude));
-        //Vector3 nodePosition = Vector3.add(cameraPosition, toObject);
 
         //Debug payload
         Log.d("Models", "Adding model to scene based on lat/long");
         Log.d("Models", "Camera world position: "  + cameraPosition.toString());
         Log.d("Models", "Vector from camera to object: " + toObject.toString());
         Log.d("Models", "Normalized cam -> obj vector: " + toObject.normalized().toString());
-        //Log.d("Models", String.format("Corrected cam -> obj vector: %s", nodePosition.toString()));
 
         float[] translation = {nodePosition.x, nodePosition.y, nodePosition.z};
         float[] rotation = {0, 0, 0, 0};
@@ -779,9 +729,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         anchorList.add(anchor);
 
         //check for other anchor points in the same 3D area
-        //anchor = nudgeAnchor(anchor);
-
-        //AnchorNode anchorNode = new AnchorNode(anchor);
         AnchorNode anchorNode = new AnchorNode();
 
         nodeList.add(new NodeBundle(anchorNode, latitude, longitude));
@@ -796,25 +743,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         });
     }
 
-    public double calculateHaversine(double lat1, double long1, double lat2, double long2){
-        final double earthRadius = 6378.137;
-        double dLat = lat2 * Math.PI / 180 - lat1 * Math.PI / 180;
-        double dLong = long2 * Math.PI / 180 - long1 * Math.PI / 180;
-        double a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                        Math.sin(dLong/2) * Math.sin(dLong/2);
-        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        double d = earthRadius * c;
-        return d * 1000;
-    }
 
-
-    public void attemptCalc(double lat1, double long1, double lat2, double long2, double distance){
-
-        double theta = Math.atan( (long1 - long2) / (lat1 - lat2));
-        Vector3 v = new Vector3( (float)(distance * Math.cos(theta)), (float)(distance* Math.sin(theta)), 0);
-        Log.d("Models", String.format("Attempted calc: %s", v.toString()));
-    }
     //*******************
     // NETWORK
     //*******************
@@ -902,6 +831,9 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         //String ipv4Address = "10.0.2.2";
         //String portNumber = "8888";
         //String postUrl= "https://"+ipv4Address+":"+portNumber+"/points";
+
+        //NOTE: THIS IP WILL LIKELY NOT BE SERVICEABLE AFTER DEC, 2019
+        //  PLEASE, SETUP YOUR OWN SERVICE WITH THE FLASK SERVER IN THIS REPO
         String postUrl= "http://35.245.208.104/api/points";
         MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
         RequestBody postBody = RequestBody.create(mediaType, payload.getJSON().toString());
@@ -971,7 +903,6 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                             .setView(this, createView(text, NODE_TYPE.RECEIVED))
                             .build()
                             .thenAccept(renderable -> addObjectToScene(renderable, latitude, longitude, bearing));
-
                 }
             }
             catch(JSONException e){
@@ -1205,5 +1136,4 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
     protected void onDestroy() {
         super.onDestroy();
     }
-
 }

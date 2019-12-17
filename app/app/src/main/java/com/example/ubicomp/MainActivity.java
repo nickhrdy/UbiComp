@@ -197,6 +197,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         ORIENTATIONS.append(Surface.ROTATION_270, 180);
     }
 
+    // enum to determine if node was scanned or not
     private enum NODE_TYPE {RECEIVED, CREATE}
 
     //Camera properties
@@ -250,7 +251,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         pointsKey = new JSONObject();
         text = findViewById(R.id.editText);
         button = findViewById(R.id.button);
-//        receiveButton = findViewById(R.id.receiveButton);
+        //receiveButton = findViewById(R.id.receiveButton);
         textureView = findViewById(R.id.textureView);
         textureView.setSurfaceTextureListener(textureListener);
         arFragment = (ArFragment) getSupportFragmentManager().findFragmentById(R.id.ux_fragment);
@@ -296,7 +297,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
                     //calculate relative position of node to camera
                     Vector3 cameraPosition = arFragment.getArSceneView().getScene().getCamera().getWorldPosition();
-                    Vector3 newOffset = new Vector3((float)Math.cos(bearing) * scaledDistance, (float)(cameraPosition.y - 0.5), (float)Math.sin(bearing) * scaledDistance);
+                    Vector3 newOffset = new Vector3((float)Math.cos(bearing) * Math.max(1, scaledDistance), (float)(cameraPosition.y - 0.5), (float)Math.sin(bearing) * Math.max(1, scaledDistance));
 
                     //set node position and rotation
                     Vector3 finalPosition = Vector3.add(newOffset, cameraPosition);
@@ -519,14 +520,12 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
 
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
-                //ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED ||
                 ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){
-            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA /*, Manifest.permission.ACCESS_COARSE_LOCATION*/, Manifest.permission.ACCESS_FINE_LOCATION}, 101);
+            ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION}, 101);
             return;
         }
         configureTransform(width, height);
         manager.openCamera(cameraId, stateCallback, null);
-
     }
 
     // Create View for ArCore renderables
@@ -779,7 +778,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
         anchorList.add(anchor);
 
         //check for other anchor points in the same 3D area
-//        anchor = nudgeAnchor(anchor);
+        //anchor = nudgeAnchor(anchor);
 
         //AnchorNode anchorNode = new AnchorNode(anchor);
         AnchorNode anchorNode = new AnchorNode();
@@ -944,7 +943,7 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
      *             keeps track of items it's currently showing to avoid showing duplicates.
      */
     private void placeNodes(JSONObject json){
-        if (json == null) {
+        if (json == null || json.length() == 0) {
             Log.d("Flask", "No results to return yet!!!");
             return;
         }

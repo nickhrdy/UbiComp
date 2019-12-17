@@ -10,15 +10,20 @@
 
     <EditText
         android:id="@+id/editText"
-        android:layout_width="150dp"
-        android:layout_height="368dp"
-        android:background="#FFFFFF"
+        android:layout_width="713dp"
+        android:layout_height="46dp"
+        android:layout_marginStart="16dp"
+
+        android:background="#80000000"
         android:ems="10"
         android:inputType="textMultiLine"
         android:rotation="0"
+        android:textColor="#FFFFFFFF"
         android:textIsSelectable="false"
         android:textSize="10sp"
         app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="1.0" />
@@ -27,15 +32,16 @@
         android:id="@+id/button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="60dp"
         android:rotation="0"
         android:text="Scan"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="@+id/editText"
-        app:layout_constraintHorizontal_bias="0.502"
+        app:layout_constraintHorizontal_bias="1.0"
         app:layout_constraintStart_toStartOf="@+id/editText" />
 
-<!--    <Button-->
+
+    <!--    <Button-->
 <!--        android:id="@+id/receiveButton"-->
 <!--        android:layout_width="wrap_content"-->
 <!--        android:layout_height="wrap_content"-->

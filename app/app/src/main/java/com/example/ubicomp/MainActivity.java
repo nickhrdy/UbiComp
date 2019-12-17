@@ -310,15 +310,16 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     Pose pose = new Pose(translation, rotation);
 
                     try {
+                        Anchor oldAnchor = node.getAnchor();
                         Anchor newAnchor = arFragment.getArSceneView().getSession().createAnchor(pose);
                         node.setAnchor(newAnchor);
 
-                        if (node.getAnchor() != null) {
-                            node.getAnchor().detach();
+                        if (oldAnchor != null) {
+                            oldAnchor.detach();
                         }
                     }
                     catch(NotTrackingException e){
-                        Log.e("Tracking", "NOT TRACKING", e);
+                        Log.e("Tracking", "NOT TRACKING");
                     }
 
                     //set scale based on how far away it is

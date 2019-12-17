@@ -323,13 +323,13 @@ public class MainActivity extends FragmentActivity implements DownloadCallback<S
                     }
 
                     //set scale based on how far away it is
-                    node.setWorldScale(new Vector3((float)Math.max(0.5, 1 - scaledDistance), 1, (float)Math.max(0.5, 1 - scaledDistance)));
+                    //node.setWorldScale(new Vector3((float)Math.max(0.5, 1 - scaledDistance), 1, (float)Math.max(0.5, 1 - scaledDistance)));
 
                     //change color based on distance to current location
                     ViewRenderable vr = (ViewRenderable) node.getRenderable();
                     View v = vr.getView();
                     if(results[0] < 15) {
-                        v.setBackgroundColor(Color.GREEN);
+                        v.setBackgroundColor(Color.DKGRAY);
                     }
                     else {
                         v.setBackgroundColor(Color.BLUE);

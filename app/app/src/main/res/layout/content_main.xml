@@ -10,8 +10,8 @@
 
     <EditText
         android:id="@+id/editText"
-        android:layout_width="714dp"
-        android:layout_height="63dp"
+        android:layout_width="713dp"
+        android:layout_height="46dp"
         android:layout_marginStart="16dp"
 
         android:background="#80000000"
@@ -37,11 +37,11 @@
         android:text="Scan"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="@+id/editText"
-        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintHorizontal_bias="1.0"
         app:layout_constraintStart_toStartOf="@+id/editText" />
 
 
-<!--    <Button-->
+    <!--    <Button-->
 <!--        android:id="@+id/receiveButton"-->
 <!--        android:layout_width="wrap_content"-->
 <!--        android:layout_height="wrap_content"-->
